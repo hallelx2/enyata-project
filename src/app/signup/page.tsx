@@ -1,11 +1,11 @@
 import { Suspense } from "react";
-import { LandingView } from "@/modules/landing/views/LandingView";
+import { SignupView } from "@/modules/auth/views/SignupView";
 
-export default async function Page() {
+export default async function SignupPage() {
   "use cache";
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      <LandingView />
+      <SignupView />
     </Suspense>
   );
 }
