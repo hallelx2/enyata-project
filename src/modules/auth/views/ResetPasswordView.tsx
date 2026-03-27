@@ -8,6 +8,8 @@ import { AuthLayout } from "../components/AuthLayout";
 export function ResetPasswordView() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -49,27 +51,51 @@ export function ResetPasswordView() {
           <label className="block text-sm font-semibold text-on-surface-variant ml-1">
             New Password
           </label>
-          <input
-            className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
-            placeholder="••••••••"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <div className="relative">
+            <input
+              className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 pr-12 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
+              placeholder="••••••••"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              <span className="material-symbols-outlined text-xl">
+                {showPassword ? "visibility_off" : "visibility"}
+              </span>
+            </button>
+          </div>
         </div>
         <div className="space-y-2">
           <label className="block text-sm font-semibold text-on-surface-variant ml-1">
             Confirm Password
           </label>
-          <input
-            className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
-            placeholder="••••••••"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-          />
+          <div className="relative">
+            <input
+              className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 pr-12 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
+              placeholder="••••••••"
+              type={showConfirmPassword ? "text" : "password"}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword((v) => !v)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-outline-variant hover:text-on-surface transition-colors"
+              aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+            >
+              <span className="material-symbols-outlined text-xl">
+                {showConfirmPassword ? "visibility_off" : "visibility"}
+              </span>
+            </button>
+          </div>
         </div>
 
         <button

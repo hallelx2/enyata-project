@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { generateText } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createVertex } from "@ai-sdk/google-vertex";
 import { createTriageRequest, getLatestTriageForPatient } from "@/modules/triage/actions";
 import { initializeMockEscrow } from "@/modules/escrow/actions";
 import { linkEscrowToTriage } from "@/modules/triage/actions";
 
-const anthropic = createAnthropic();
+const vertex = createVertex({
+  project: process.env.GOOGLE_VERTEX_PROJECT!,
+  location: process.env.GOOGLE_VERTEX_LOCATION ?? "us-central1",
+  googleAuthOptions: {
+    credentials: JSON.parse(process.env.GOOGLE_VERTEX_CREDENTIALS!),
+  },
+});
 
 interface VapiToolCall {
   id: string;
@@ -36,7 +42,7 @@ async function generateRoutingMessage(
 ): Promise<string> {
   try {
     const { text } = await generateText({
-      model: anthropic("claude-haiku-4-5-20251001"),
+      model: vertex("gemini-2.5-pro"),
       prompt: `
 You are generating a voice response for AuraHealth's triage assistant to read aloud.
 
