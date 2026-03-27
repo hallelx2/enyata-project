@@ -4,6 +4,7 @@ import { ResourcePanel } from "../components/ResourcePanel";
 import { EMRSyncPanel } from "../components/EMRSyncPanel";
 import { PatientsPanel } from "../components/PatientsPanel";
 import { HospitalProfilePanel } from "../components/HospitalProfilePanel";
+import { ProfileSetupModal } from "../components/ProfileSetupModal";
 
 interface PendingRequest {
   linkId: string;
@@ -95,6 +96,11 @@ export function HospitalDashboardView({
 }: HospitalDashboardViewProps) {
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
+      <ProfileSetupModal
+        hospitalId={hospitalId}
+        hospitalName={hospitalName}
+        needsSetup={!hospitalProfile?.description}
+      />
       <DashboardNav
         user={{ name: hospitalName, email: hospitalEmail, role: "hospital" }}
       />

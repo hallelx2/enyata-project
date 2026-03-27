@@ -20,15 +20,12 @@ export function SignupView() {
     e.preventDefault();
     setLoading(true);
 
-    // Hospitals need approval, patients are auto-approved
-    const isApproved = role === "patient";
-
     const { data, error } = await signUp.email({
       email,
       password,
       name,
       phoneNumber,
-      isApproved,
+      isApproved: true,
       role,
       callbackURL: "/",
     });
@@ -38,12 +35,9 @@ export function SignupView() {
       alert(error.message);
     } else {
       if (role === "hospital") {
-        alert(
-          "Registration successful! Your hospital account is pending review by our administrators.",
-        );
-        router.push("/login");
+        router.push("/dashboard/hospital");
       } else {
-        router.push("/");
+        router.push("/dashboard/patient");
       }
     }
   };
