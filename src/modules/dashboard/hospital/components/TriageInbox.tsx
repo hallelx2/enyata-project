@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updateTriageStatus } from "@/modules/triage/actions";
 import { releaseEscrow } from "@/modules/escrow/actions";
+import { updateTriageStatus } from "@/modules/triage/actions";
 
 interface TriageItem {
   id: string;
@@ -182,35 +182,40 @@ export function TriageInbox({ hospitalId, initialTriages }: TriageInboxProps) {
                 {t.symptoms}
               </p>
 
-              {(t.differentials || t.clinicalSummary) && (
-                <details className="mb-4">
-                  <summary className="cursor-pointer text-xs font-bold text-blue-700 flex items-center gap-1.5 select-none list-none mb-2">
-                    <span className="material-symbols-outlined text-sm">psychology</span>
-                    Clinical AI Assessment
-                  </summary>
-                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-2">
-                    {t.differentials && (() => {
-                      try {
-                        const diffs = JSON.parse(t.differentials) as string[];
-                        return diffs.length > 0 ? (
-                          <div>
-                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Differentials</p>
-                            <p className="text-sm text-blue-900">{diffs.join(", ")}</p>
+              <details className="mb-4" open={!!(t.differentials || t.clinicalSummary)}>
+                <summary className="cursor-pointer text-xs font-bold text-blue-700 flex items-center gap-1.5 select-none list-none mb-2">
+                  <span className="material-symbols-outlined text-sm">psychology</span>
+                  Clinical AI Assessment
+                  <span className="material-symbols-outlined text-sm ml-auto text-blue-400">expand_more</span>
+                </summary>
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-3">
+                  {t.differentials ? (() => {
+                    try {
+                      const diffs = JSON.parse(t.differentials) as string[];
+                      return diffs.length > 0 ? (
+                        <div>
+                          <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1.5">Differential Diagnoses</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {diffs.map((d) => (
+                              <span key={d} className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">{d}</span>
+                            ))}
                           </div>
-                        ) : null;
-                      } catch {
-                        return null;
-                      }
-                    })()}
-                    {t.clinicalSummary && (
-                      <div>
-                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Clinical Summary</p>
-                        <p className="text-sm text-blue-900 leading-relaxed">{t.clinicalSummary}</p>
-                      </div>
-                    )}
-                  </div>
-                </details>
-              )}
+                        </div>
+                      ) : null;
+                    } catch { return null; }
+                  })() : (
+                    <p className="text-xs text-blue-400 italic">Differentials not yet available — will populate after voice triage</p>
+                  )}
+                  {t.clinicalSummary ? (
+                    <div>
+                      <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Clinical Summary</p>
+                      <p className="text-sm text-blue-900 leading-relaxed">{t.clinicalSummary}</p>
+                    </div>
+                  ) : (
+                    !t.differentials && null
+                  )}
+                </div>
+              </details>
 
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <p className="text-xs text-on-surface-variant">
@@ -225,7 +230,7 @@ export function TriageInbox({ hospitalId, initialTriages }: TriageInboxProps) {
                   {t.escrowRef && (
                     <button
                       type="button"
-                      onClick={() => handleRelease(t.escrowRef!)}
+                      onClick={() => handleRelease(t.escrowRef ?? "")}
                       disabled={isPending}
                       className="px-4 py-2 bg-green-100 text-green-700 text-xs font-bold rounded-xl hover:bg-green-200 transition-colors disabled:opacity-50 flex items-center gap-1"
                     >

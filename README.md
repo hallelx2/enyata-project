@@ -1,82 +1,136 @@
 # AuraHealth — Enyata × Interswitch Buildathon Submission
 
-> **Intelligent hospital triage and pre-authorized care payments for Nigeria**
+> **Intelligent hospital triage, care coordination, and end-to-end payment orchestration for Nigeria**
 
-AuraHealth removes the friction of emergency healthcare navigation by combining a voice AI triage agent, real-time hospital routing, and escrow-based payment pre-authorization — so patients receive care faster and hospitals receive guaranteed payment.
+**Live Demo:** https://aurahealth-five.vercel.app
 
 ---
 
 ## The Problem
 
-In Nigeria, patients facing a medical emergency must:
+A patient in a Nigerian emergency faces a payment queue at every stage of care:
 
-1. Manually search for a nearby hospital
-2. Travel there without knowing if they will be admitted or have capacity
-3. Negotiate billing and payment at the worst possible moment
-4. Repeat this across multiple hospitals when turned away
+- Admission desk — pay to register
+- Ward allocation — pay for bed
+- Diagnostics — pay for labs and imaging
+- Pharmacy — pay for each medication
+- Procedures — pay per intervention
 
-This friction costs lives. AuraHealth solves it end-to-end.
+Each payment is separate, often requires cash, and must be settled *before* care is delivered. This costs time — and lives.
+
+AuraHealth eliminates this queue entirely. A single voice call to our AI agent covers the full episode of care in advance, routed to the right hospital with the right resources.
 
 ---
 
 ## How It Works
 
-### Hospital Side
+### 1. Hospital Onboarding
 
-1. A hospital registers on AuraHealth, providing name, address, and specialties
-2. An admin reviews and approves (or rejects) the registration
-3. Once approved, the hospital dashboard becomes active and the hospital can receive triage alerts in real time
+| Step | Actor | Page |
+|------|-------|------|
+| Register with name, email, specialties | Hospital | [/signup](https://aurahealth-five.vercel.app/signup) |
+| Review and approve/reject | Admin | [/admin](https://aurahealth-five.vercel.app/admin) |
+| Set hospital profile, resources & prices | Hospital | [/dashboard/hospital](https://aurahealth-five.vercel.app/dashboard/hospital) |
 
-### Patient Side
+The hospital fills in its resource inventory — beds, ICU slots, lab kits, surgical teams — each with a count and a price in ₦. These feed directly into the AI agent's routing decisions.
 
-1. A patient signs up and their profile is stored along with basic health information
-2. Their profile is matched against approved hospitals — the best-fit hospital is auto-linked
-3. From the patient dashboard, the patient can:
-   - Start a **voice triage session** with Aura, AuraHealth's AI agent
-   - Submit symptoms via text if voice is unavailable
-   - View triage history and escrow payment status
-   - Pre-authorize a care deposit (₦5,000) at any time
+### 2. Patient Onboarding
 
-### Voice Triage Agent (Aura)
+| Step | Actor | Page |
+|------|-------|------|
+| Register with name, email, phone | Patient | [/signup](https://aurahealth-five.vercel.app/signup) |
+| Auto-matched to an approved hospital | System | — |
+| Optionally link to a specific hospital | Patient → Hospital | [/dashboard/patient](https://aurahealth-five.vercel.app/dashboard/patient) |
 
-The core of AuraHealth is **Aura** — a conversational AI agent that runs entirely over voice (browser WebRTC or phone):
+### 3. Emergency — Voice Triage with Aura
 
-1. Patient calls Aura from their dashboard
-2. Aura asks about symptoms in a natural, empathetic conversation
-3. Aura assesses severity (critical / high / medium / low) and invokes the `routeToHospital` tool
-4. The server creates a triage record, assigns the patient's linked hospital, and generates a personalized routing message via Claude Haiku
-5. Aura reads the message aloud and offers to pre-authorize payment
-6. If the patient confirms, Aura invokes `createEscrow` — ₦5,000 is held in escrow via Interswitch
-7. The hospital dashboard receives a real-time alert via Server-Sent Events and can begin preparing
+The patient opens their dashboard and taps **"Start Voice Triage"**. Aura, our AI nurse, answers immediately.
 
-### Escrow Payment Flow
+1. Aura asks about symptoms in plain conversational language
+2. Aura assesses severity (critical / high / medium / low)
+3. Aura checks the hospital's live resource availability and prices
+4. Aura routes the patient to their linked hospital, reads a personalised message, and names the care pathway
+5. Aura confirms the total estimated cost and asks to pre-authorise payment
+6. Patient confirms — escrow is created instantly via Interswitch
+7. The hospital's triage inbox receives a real-time alert via SSE
 
-- Payment pre-authorization uses **Interswitch QuickTeller** (OAuth2 + SHA-512 HMAC)
-- In development/demo mode, escrow is mocked: a transaction reference (`MOCK-{timestamp}`) is generated and the status is immediately set to `held`
-- On production, the full Interswitch sandbox/live flow is used
-- Escrow lifecycle: `pending → held → released` (on care completion) or `refunded` (on cancellation)
-- Hospitals can release escrow from the triage inbox once treatment is complete
+The doctor sees the triage card with **differential diagnoses** and a **clinical summary** generated by Gemini 2.5 Pro — not just symptoms.
+
+### 4. In-Hospital Care (Zero Payment Friction)
+
+Once admitted, the patient never joins another payment queue. Each stage of care — bed allocation, labs, medication, procedures — draws from the pre-authorised escrow held by AuraHealth. The hospital requests a release per item; AuraHealth verifies and releases.
+
+When care is complete, the hospital clicks **Release Escrow** on the triage card and the full balance settles via Interswitch.
+
+---
+
+## Full Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant P as Patient (Browser)
+    participant V as VAPI (Voice AI)
+    participant W as /api/vapi/webhook
+    participant G as Gemini 2.5 Pro
+    participant DB as Database
+    participant H as Hospital Dashboard
+    participant I as Interswitch Escrow
+
+    P->>V: Start voice call (WebRTC)
+    V->>P: "Hi, I'm Aura. What brings you in today?"
+    P->>V: Describes symptoms
+    V->>W: Tool call: routeToHospital(symptoms, severity)
+    W->>DB: createTriageRequest(patientId, symptoms, severity)
+    W->>DB: getHospitalResources(hospitalId)
+    W->>G: generateText(symptoms + resources + patient history)
+    G-->>W: { routingMessage, differentials[], clinicalSummary }
+    W->>DB: save differentials + clinicalSummary to triage
+    W-->>V: routingMessage text
+    V->>P: Reads routing message aloud
+    V->>P: "Shall I pre-authorise ₦X for your care?"
+    P->>V: "Yes"
+    V->>W: Tool call: createEscrow(amountNaira)
+    W->>I: initializeEscrow(patientId, hospitalId, amount)
+    I-->>W: { txnRef, status: "held" }
+    W->>DB: linkEscrowToTriage(triageId, txnRef)
+    W-->>V: "Payment of ₦X pre-authorised. Reference: MOCK-..."
+    V->>P: Reads confirmation
+    DB-->>H: SSE push → new triage alert (Live updates every 5s)
+    H->>H: Show triage card with differentials + clinical summary
+    Note over H: Doctor reviews AI assessment, starts treatment
+    H->>DB: updateTriageStatus(id, "in_progress")
+    DB-->>P: SSE push → patient dashboard updates to "In Progress"
+    Note over H: Treatment complete
+    H->>I: releaseEscrow(txnRef)
+    I-->>H: Payment settled
+    H->>DB: updateTriageStatus(id, "resolved")
+    DB-->>P: SSE push → patient dashboard updates to "Resolved"
+```
 
 ---
 
 ## Architecture
 
 ```
-Browser (Patient)
+Patient Browser
   └── VoiceTriage.tsx (@vapi-ai/web WebRTC)
-        └── VAPI Cloud (GPT-4o + Deepgram + ElevenLabs)
+        └── VAPI Cloud (GPT-4o + Deepgram nova-3-medical + ElevenLabs)
               └── POST /api/vapi/webhook
-                    ├── routeToHospital → createTriageRequest() → DB
-                    │     └── generateText(claude-haiku) → routing message
-                    └── createEscrow → initializeMockEscrow() → DB
+                    ├── createTriageRequest()       → DB
+                    ├── getHospitalResources()      → DB
+                    ├── generateText(gemini-2.5-pro)→ Vertex AI
+                    │     returns: routingMessage + differentials + clinicalSummary
+                    └── initializeMockEscrow()      → DB / Interswitch
 
-Browser (Hospital)
-  └── TriageInbox.tsx (EventSource SSE)
+Hospital Browser
+  └── TriageInbox.tsx (EventSource)
         └── GET /api/triage/stream?hospitalId=...
-              └── DB poll every 5s (new triage_request rows)
+              └── DB poll every 5s → push new + updated triages
 
-Admin
-  └── /admin — approve/reject hospital registrations
+Patient Browser
+  └── PatientDashboardView (EventSource)
+        └── GET /api/events/patient-stream?patientId=...
+              └── DB poll → push link approval + triage status changes
 ```
 
 ---
@@ -91,29 +145,50 @@ Admin
 | Database | Neon PostgreSQL (serverless HTTP) |
 | ORM | Drizzle ORM 0.45 |
 | Styling | Tailwind CSS v4 |
-| Voice AI | VAPI (GPT-4o model, Deepgram nova-3-medical, ElevenLabs) |
-| AI SDK | Vercel AI SDK + @ai-sdk/anthropic (Claude Haiku) |
-| Payments | Interswitch QuickTeller (mock escrow in dev) |
-| Real-time | Server-Sent Events (SSE) |
+| Voice AI | VAPI (GPT-4o, Deepgram nova-3-medical, ElevenLabs) |
+| AI Routing | Vercel AI SDK + @ai-sdk/google-vertex (Gemini 2.5 Pro) |
+| Payments | Interswitch QuickTeller (escrow lifecycle) |
+| Real-time | Server-Sent Events (triage alerts + patient updates) |
 
 ---
 
 ## Features
 
 - [x] Hospital registration with admin approval workflow
+- [x] Hospital profile: description, specialties, bed count, ICU count, emergency phone
+- [x] Hospital resource inventory: name, category, available count, price in ₦
 - [x] Patient registration with EMR-based hospital matching
-- [x] Voice triage agent (VAPI, browser WebRTC)
+- [x] Voice triage agent — Aura (VAPI, browser WebRTC + phone `+17622204588`)
 - [x] Text-based triage fallback
 - [x] Severity assessment (critical / high / medium / low)
+- [x] AI clinical differentials and clinical summary per triage case (Gemini 2.5 Pro)
+- [x] Hospital resource availability factored into AI routing
 - [x] Real-time triage alerts to hospital dashboard (SSE)
-- [x] Triage status management (pending → in_progress → resolved)
-- [x] Escrow payment pre-authorization (Interswitch / mock)
-- [x] Escrow release from hospital dashboard
-- [x] AI-generated personalized routing messages (Claude Haiku)
-- [x] Admin dashboard for managing hospital approvals
-- [x] Pending approval page for newly registered hospitals
-- [x] Responsive UI with gradient design system
-- [x] Production build verified (Next.js 16.2, TypeScript clean)
+- [x] Real-time triage status updates to patient dashboard (SSE)
+- [x] Real-time patient-approval event to hospital dashboard (SSE)
+- [x] Triage status lifecycle: pending → in_progress → resolved
+- [x] Escrow pre-authorisation per triage (Interswitch / mock)
+- [x] Escrow release from hospital triage card
+- [x] EMR import (fake FHIR dataset, 15 patients)
+- [x] Linked patients panel (AuraHealth + EMR tabs)
+- [x] Admin dashboard for hospital approvals
+- [x] Password visibility toggle on all auth forms
+- [x] Responsive UI — mobile bottom nav on patient + hospital dashboards
+
+---
+
+## Pages
+
+| URL | Who uses it |
+|-----|------------|
+| [/](https://aurahealth-five.vercel.app/) | Landing page |
+| [/signup](https://aurahealth-five.vercel.app/signup) | Patient or hospital registration |
+| [/login](https://aurahealth-five.vercel.app/login) | Patient or hospital login |
+| [/dashboard/patient](https://aurahealth-five.vercel.app/dashboard/patient) | Patient dashboard — voice triage, history, escrow |
+| [/dashboard/hospital](https://aurahealth-five.vercel.app/dashboard/hospital) | Hospital dashboard — triage inbox, patients, resources |
+| [/admin](https://aurahealth-five.vercel.app/admin) | Admin — approve/reject hospital registrations |
+| [/admin/login](https://aurahealth-five.vercel.app/admin/login) | Admin login |
+| [/pending](https://aurahealth-five.vercel.app/pending) | Hospital awaiting admin approval |
 
 ---
 
@@ -122,13 +197,11 @@ Admin
 ### Prerequisites
 
 - [Bun](https://bun.sh) >= 1.0
-- PostgreSQL database (Neon recommended)
-- VAPI account + assistant
-- Anthropic API key
+- PostgreSQL database ([Neon](https://neon.tech) recommended)
+- [VAPI](https://vapi.ai) account + assistant
+- Google Cloud project with Vertex AI API enabled
 
 ### Environment Variables
-
-Create a `.env` file in the project root:
 
 ```env
 # Database
@@ -142,12 +215,15 @@ BETTER_AUTH_SECRET=your_32_char_secret_here
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 # VAPI — Voice AI
-VAPI_API_KEY=your_vapi_api_key
+VAPI_API_KEY=your_vapi_private_key
 NEXT_PUBLIC_VAPI_PUBLIC_KEY=your_vapi_public_key
 NEXT_PUBLIC_VAPI_ASSISTANT_ID=your_assistant_id
+NEXT_PUBLIC_VAPI_PHONE_NUMBER=+17622204588
 
-# Anthropic — for routing message generation
-ANTHROPIC_API_KEY=your_anthropic_api_key
+# Google Vertex AI — Gemini 2.5 Pro
+GOOGLE_VERTEX_PROJECT=your_gcp_project_id
+GOOGLE_VERTEX_LOCATION=us-central1
+GOOGLE_VERTEX_CREDENTIALS={"type":"service_account",...}
 ```
 
 ### Installation
@@ -155,26 +231,14 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 ```bash
 bun install
 bunx drizzle-kit push   # push schema to database
-bun dev                 # start dev server
+bun dev                 # start dev server at http://localhost:3000
 ```
-
-Open [http://localhost:3000](http://localhost:3000)
 
 ### Production Build
 
 ```bash
 bun run build
 bun start
-```
-
-### VAPI Assistant Setup
-
-After deploying to production, update the VAPI assistant's server URL:
-
-```bash
-# Using VAPI CLI
-vapi assistant update <ASSISTANT_ID> \
-  --serverUrl https://your-domain.com/api/vapi/webhook
 ```
 
 ---
@@ -184,38 +248,29 @@ vapi assistant update <ASSISTANT_ID> \
 ```
 src/
 ├── app/
-│   ├── admin/              # Admin dashboard (hospital approvals)
+│   ├── admin/                   # Admin dashboard
 │   ├── api/
-│   │   ├── auth/           # Better Auth handler
-│   │   ├── escrow/         # Interswitch escrow callback
-│   │   ├── triage/stream/  # SSE real-time triage alerts
-│   │   └── vapi/webhook/   # VAPI tool call handler
+│   │   ├── auth/                # Better Auth handler
+│   │   ├── escrow/callback/     # Interswitch payment callback
+│   │   ├── events/patient-stream/ # SSE — patient dashboard updates
+│   │   ├── triage/stream/       # SSE — hospital triage alerts
+│   │   └── vapi/webhook/        # VAPI tool call handler
 │   ├── dashboard/
-│   │   ├── hospital/       # Hospital dashboard (triage inbox)
-│   │   └── patient/        # Patient dashboard (voice triage, history)
-│   ├── login/
-│   ├── signup/
-│   ├── pending/            # Post-registration approval waiting page
-│   └── page.tsx            # Landing page
+│   │   ├── hospital/            # Hospital dashboard
+│   │   └── patient/             # Patient dashboard
+│   └── page.tsx                 # Landing page
 ├── components/
-│   └── VoiceTriage.tsx     # VAPI browser voice widget
+│   └── VoiceTriage.tsx          # VAPI browser voice widget
 ├── lib/
-│   ├── auth.ts             # Better Auth server config
-│   ├── auth-client.ts      # Better Auth browser client
-│   ├── db/
-│   │   ├── index.ts        # Drizzle + Neon client
-│   │   └── schema.ts       # Database schema
-│   └── interswitch.ts      # Interswitch payment utilities
+│   ├── auth.ts                  # Better Auth server config
+│   ├── db/schema.ts             # Full database schema
+│   └── interswitch.ts           # Interswitch payment utilities
 └── modules/
-    ├── admin/              # Admin components and actions
-    ├── auth/               # Auth views (login, signup, reset)
-    ├── dashboard/
-    │   ├── hospital/       # Hospital dashboard view + TriageInbox
-    │   └── patient/        # Patient dashboard view + triage modal
-    ├── escrow/             # Escrow actions (mock + real)
-    ├── landing/            # Landing page components
-    ├── patient/            # Patient profile components
-    └── triage/             # Triage actions (create, route, score)
+    ├── dashboard/hospital/      # Triage inbox, patients, profile, resources
+    ├── dashboard/patient/       # Voice triage, history, escrow
+    ├── escrow/                  # Escrow actions
+    ├── hospital/                # Hospital profile + resource actions
+    └── triage/                  # Triage CRUD + severity scoring
 ```
 
 ---
@@ -223,21 +278,19 @@ src/
 ## Team
 
 **Halleluyah Darasimi Oludele** — Team Lead & Software Engineer
-Full-stack engineer responsible for the entire technical implementation: Next.js architecture, VAPI voice integration, Vercel AI SDK routing, Interswitch escrow, real-time SSE infrastructure, database schema, and authentication.
+Full-stack engineer responsible for the entire technical implementation: Next.js 16.2 architecture, VAPI voice integration, Gemini 2.5 Pro routing via Vertex AI, Interswitch escrow lifecycle, real-time SSE infrastructure, database schema design, and authentication.
 
 **Theophilus Ayomide Olayiwola** — Product Manager & Product Designer
-Responsible for product strategy, user research, UX design, and defining the problem space. Shaped the product vision from the patient and hospital perspective.
+Responsible for product strategy, user research, UX design, and defining the problem space. Shaped the product vision from the patient and hospital perspective — particularly the insight that payment friction at every care stage is the core problem to solve.
 
 ---
 
-## Buildathon Context
+## The Core Insight
 
-This project was submitted for the **Enyata × Interswitch Buildathon**.
+> Nigerian hospitals collect payment at every queue. AuraHealth collapses all of those queues into a single pre-authorised escrow created during a 90-second voice call.
 
-The core innovation is treating payment as part of the triage flow — not an afterthought. By pre-authorizing payment via Interswitch escrow *during* the voice consultation, AuraHealth eliminates the billing friction that delays care delivery in Nigerian hospitals.
-
-The VAPI voice agent is the primary UX — patients in distress should not need to navigate an app. Speaking to Aura is as natural as calling a nurse.
+The patient never stops to pay again. The hospital is guaranteed payment at every stage. AuraHealth sits in the middle — routing intelligently, settling atomically, and giving doctors AI-generated clinical context before the patient even arrives.
 
 ---
 
-*Built with Next.js, VAPI, Vercel AI SDK, Interswitch, and Neon PostgreSQL*
+*Built with Next.js 16.2, VAPI, Gemini 2.5 Pro (Vertex AI), Interswitch, and Neon PostgreSQL*
