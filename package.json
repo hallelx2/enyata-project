@@ -10,7 +10,13 @@
     "format": "biome format --write"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.64",
+    "@better-auth/drizzle-adapter": "^1.5.6",
+    "@neondatabase/serverless": "^1.0.2",
+    "@vapi-ai/web": "^2.5.2",
+    "ai": "^6.0.140",
     "better-auth": "^1.5.6",
+    "drizzle-orm": "^0.45.1",
     "next": "16.2.1",
     "pg": "^8.20.0",
     "react": "19.2.4",
@@ -23,6 +29,8 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.3.1",
+    "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

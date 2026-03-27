@@ -1,11 +1,51 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { signUp } from "@/lib/auth-client";
 import { AuthLayout } from "../components/AuthLayout";
 
 export function SignupView() {
-  const [activeTab, setActiveTab] = useState<"patient" | "hospital">("patient");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [role, setRole] = useState<"patient" | "hospital">("patient");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    // Hospitals need approval, patients are auto-approved
+    const isApproved = role === "patient";
+
+    const { data, error } = await signUp.email({
+      email,
+      password,
+      name,
+      phoneNumber,
+      isApproved,
+      role,
+      callbackURL: "/",
+    });
+
+    setLoading(false);
+    if (error) {
+      alert(error.message);
+    } else {
+      if (role === "hospital") {
+        alert(
+          "Registration successful! Your hospital account is pending review by our administrators.",
+        );
+        router.push("/login");
+      } else {
+        router.push("/");
+      }
+    }
+  };
 
   return (
     <AuthLayout>
@@ -14,132 +54,157 @@ export function SignupView() {
           AuraHealth
         </span>
         <h2 className="font-headline text-4xl font-extrabold tracking-tight text-on-surface">
-          Join the Network
+          Get Protected
         </h2>
         <p className="text-on-surface-variant text-base">
-          Select your account type to create an account.
+          {role === "patient"
+            ? "Join thousands of patients and get instant care."
+            : "Partner with us to provide zero-friction emergency care."}
         </p>
       </div>
 
-      <div className="bg-surface-container-low p-1.5 rounded-full flex relative">
-        <button
-          onClick={() => setActiveTab("patient")}
-          className={`flex-1 py-3 text-sm font-bold rounded-full transition-all duration-300 z-10 ${activeTab === "patient" ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant hover:text-on-surface"}`}
-        >
-          Patient
-        </button>
-        <button
-          onClick={() => setActiveTab("hospital")}
-          className={`flex-1 py-3 text-sm font-bold rounded-full transition-all duration-300 z-10 ${activeTab === "hospital" ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant hover:text-on-surface"}`}
-        >
-          Hospital
-        </button>
-      </div>
+      <form className="space-y-6" onSubmit={handleSubmit}>
+        <div className="space-y-3">
+          <label className="block text-sm font-semibold text-on-surface-variant ml-1">
+            I am a...
+          </label>
+          <div className="grid grid-cols-2 gap-4">
+            <button
+              type="button"
+              onClick={() => setRole("patient")}
+              className={`py-3 rounded-xl border font-headline font-bold transition-all ${
+                role === "patient"
+                  ? "aura-gradient-bg text-white border-transparent shadow-md"
+                  : "bg-surface-container-high text-on-surface-variant border-transparent hover:bg-surface-container-highest"
+              }`}
+            >
+              Patient
+            </button>
+            <button
+              type="button"
+              onClick={() => setRole("hospital")}
+              className={`py-3 rounded-xl border font-headline font-bold transition-all ${
+                role === "hospital"
+                  ? "aura-gradient-bg text-white border-transparent shadow-md"
+                  : "bg-surface-container-high text-on-surface-variant border-transparent hover:bg-surface-container-highest"
+              }`}
+            >
+              Hospital
+            </button>
+          </div>
+        </div>
 
-      <form className="space-y-6">
-        {activeTab === "patient" && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-on-surface-variant ml-1">
-                Full Name
-              </label>
-              <input
-                className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
-                placeholder="Jane Doe"
-                type="text"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-on-surface-variant ml-1">
-                Email Address
-              </label>
-              <input
-                className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
-                placeholder="name@example.com"
-                type="email"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-on-surface-variant ml-1">
-                Create Password
-              </label>
-              <input
-                className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
-                placeholder="••••••••"
-                type="password"
-              />
-            </div>
+        <div className="space-y-2">
+          <label
+            htmlFor="full-name"
+            className="block text-sm font-semibold text-on-surface-variant ml-1"
+          >
+            {role === "patient" ? "Full Name" : "Hospital Name"}
+          </label>
+          <input
+            type="text"
+            id="full-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={role === "patient" ? "John Doe" : "St. Jude Medical"}
+            className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all font-body"
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label
+            htmlFor="email"
+            className="block text-sm font-semibold text-on-surface-variant ml-1"
+          >
+            {role === "patient" ? "Email Address" : "Contact Email"}
+          </label>
+          <input
+            type="email"
+            id="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@example.com"
+            className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all font-body"
+            required
+          />
+        </div>
+
+        {role === "hospital" && (
+          <div className="space-y-2">
+            <label
+              htmlFor="phone"
+              className="block text-sm font-semibold text-on-surface-variant ml-1"
+            >
+              Phone Number
+            </label>
+            <input
+              type="tel"
+              id="phone"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="+234..."
+              className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all font-body"
+              required
+            />
           </div>
         )}
 
-        {activeTab === "hospital" && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-on-surface-variant ml-1">
-                Hospital Name
-              </label>
-              <input
-                className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
-                placeholder="General Medical Center"
-                type="text"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-on-surface-variant ml-1">
-                Contact Email
-              </label>
-              <input
-                className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all"
-                placeholder="partnership@hospital.org"
-                type="email"
-              />
-            </div>
-          </div>
-        )}
-
-        <button
-          className="w-full py-4 aura-gradient-bg text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 flex items-center justify-center gap-2"
-          type="button"
-        >
-          Create Account
-          <span className="material-symbols-outlined text-xl">
-            arrow_forward
-          </span>
-        </button>
-
-        <div className="flex items-center gap-4 py-2">
-          <div className="h-[1px] flex-1 bg-outline-variant/30"></div>
-          <span className="text-xs font-bold text-outline-variant uppercase tracking-widest">
-            Or Use Escrow Direct
-          </span>
-          <div className="h-[1px] flex-1 bg-outline-variant/30"></div>
+        <div className="space-y-2">
+          <label
+            htmlFor="password"
+            className="block text-sm font-semibold text-on-surface-variant ml-1"
+          >
+            Password
+          </label>
+          <input
+            type="password"
+            id="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all font-body"
+            required
+          />
         </div>
 
         <button
-          className="w-full py-4 border border-outline-variant/20 bg-surface-container-lowest text-on-surface font-bold rounded-xl hover:bg-surface-container-low transition-all flex items-center justify-center gap-3"
-          type="button"
+          type="submit"
+          disabled={loading}
+          className="w-full py-4 aura-gradient-bg text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
         >
-          <div className="w-6 h-6 bg-secondary/10 rounded flex items-center justify-center">
-            <span
-              className="material-symbols-outlined text-secondary text-sm"
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              payments
+          {loading ? "Creating Account..." : "Create Account"}
+          {!loading && (
+            <span className="material-symbols-outlined text-xl">
+              arrow_forward
             </span>
-          </div>
-          Auth with Interswitch API
+          )}
         </button>
       </form>
 
-      <p className="text-center text-sm text-on-surface-variant">
-        Already have an account?{" "}
-        <Link
-          className="text-primary font-bold hover:underline underline-offset-4"
-          href="/login"
-        >
-          Sign in here
-        </Link>
-      </p>
+      <div className="space-y-4">
+        <p className="text-center text-sm text-on-surface-variant">
+          Already have an account?{" "}
+          <Link
+            href="/login"
+            className="text-primary font-bold hover:underline underline-offset-4"
+          >
+            Sign In
+          </Link>
+        </p>
+
+        <p className="text-center text-[10px] text-on-surface-variant/60 leading-relaxed font-body px-4">
+          By creating an account, you agree to our{" "}
+          <Link href="/terms" className="underline font-semibold">
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link href="/privacy" className="underline font-semibold">
+            Privacy Policy
+          </Link>
+          .
+        </p>
+      </div>
     </AuthLayout>
   );
 }

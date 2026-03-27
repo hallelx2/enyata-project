@@ -1,12 +1,15 @@
 import Link from "next/link";
+import { AuraLogo } from "@/components/AuraLogo";
 
 export function Header() {
   return (
     <header className="fixed top-0 w-full z-50 bg-white/60 dark:bg-slate-950/60 backdrop-blur-xl shadow-sm dark:shadow-none">
       <nav className="flex justify-between items-center w-full px-6 py-4 max-w-7xl mx-auto">
-        <div className="text-2xl font-bold tracking-tighter text-slate-900 dark:text-slate-50 font-headline">
-          AuraHealth
-        </div>
+        <AuraLogo
+          className="w-8 h-8 dark:text-slate-50"
+          withText
+          textClassName="text-2xl"
+        />
         <div className="hidden md:flex items-center gap-8">
           <Link
             className="text-blue-700 dark:text-blue-400 font-bold border-b-2 border-blue-700 dark:border-blue-400 pb-1 font-headline"

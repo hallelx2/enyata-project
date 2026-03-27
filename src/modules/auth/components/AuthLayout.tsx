@@ -1,6 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -29,10 +31,13 @@ export function AuthLayout({ children }: { children: ReactNode }) {
               Clinical-Grade Security
             </div>
             <h1 className="font-headline text-5xl font-extrabold text-white tracking-tighter leading-tight">
-              Your Healthcare Journey, <br/>Frictionless &amp; Protected.
+              Your Healthcare Journey, <br />
+              Frictionless &amp; Protected.
             </h1>
             <p className="text-white/80 text-lg max-w-md font-medium leading-relaxed">
-              AuraHealth bridges the gap between patient distress and clinical readiness. Our escrow-backed admissions ensure hospitals are paid, and patients are treated instantly.
+              AuraHealth bridges the gap between patient distress and clinical
+              readiness. Our escrow-backed admissions ensure hospitals are paid,
+              and patients are treated instantly.
             </p>
             {/* Vital Glass Widget Concept */}
             <div className="mt-8 p-6 glass-effect rounded-xl border border-white/10 flex items-center gap-4 max-w-xs">

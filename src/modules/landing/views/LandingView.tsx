@@ -1,10 +1,10 @@
+import { CTA } from "../components/CTA";
+import { Footer } from "../components/Footer";
 import { Header } from "../components/Header";
 import { Hero } from "../components/Hero";
 import { HowItWorks } from "../components/HowItWorks";
-import { TrustSecurity } from "../components/TrustSecurity";
-import { CTA } from "../components/CTA";
 import { TrustMarkers } from "../components/TrustMarkers";
-import { Footer } from "../components/Footer";
+import { TrustSecurity } from "../components/TrustSecurity";
 
 export function LandingView() {
   return (
