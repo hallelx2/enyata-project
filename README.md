@@ -2,7 +2,7 @@
 
 > **Intelligent hospital triage, care coordination, and end-to-end payment orchestration for Nigeria**
 
-**Live Demo:** https://aurahealth-five.vercel.app
+**Live Link:** https://aurahealth-five.vercel.app
 
 ---
 
@@ -135,6 +135,108 @@ Patient Browser
 
 ---
 
+## APIs Used
+
+### Interswitch QuickTeller — Payments & Escrow
+
+> **Environment:** Sandbox / Test
+
+AuraHealth uses the Interswitch QuickTeller API for all payment operations. Every escrow transaction is created, held, and released through QuickTeller's payment infrastructure.
+
+| Operation | Endpoint | When |
+|-----------|----------|------|
+| Initiate payment | `POST /quickteller/api/v5/transactions` | Patient confirms pre-auth during voice triage |
+| Query status | `GET /quickteller/api/v5/transactions/{txnRef}` | Verify escrow hold before releasing |
+| Release funds | `POST /quickteller/api/v5/transactions/release` | Hospital marks treatment complete |
+| Payment callback | `/api/escrow/callback` (our webhook) | QuickTeller notifies us of status changes |
+
+Authentication uses **OAuth 2.0 client credentials** with a **SHA-512 HMAC** request signature computed from `clientId + amount + txnRef + terminalId`.
+
+**Coming next — Interswitch Identity Verification:** We will integrate Interswitch's identity verification API to KYC patients and hospitals at onboarding, ensuring that the person pre-authorising payment is who they claim to be. This is especially important for HMO-linked accounts where a patient's insurer covers the escrow amount.
+
+---
+
+### VAPI — Voice AI Platform
+
+> **Docs:** https://docs.vapi.ai
+
+VAPI hosts the Aura voice agent and manages the full WebRTC session.
+
+| Component | Value |
+|-----------|-------|
+| Model | GPT-4o (conversation) |
+| Transcription | Deepgram nova-3-medical (clinical accuracy) |
+| Voice synthesis | ElevenLabs — "Burt" voice |
+| Phone number | `+17622204588` |
+| HIPAA compliant | Yes |
+
+VAPI calls our server at `/api/vapi/webhook` when the agent decides to invoke a tool (`routeToHospital`, `createEscrow`). We return a text string that VAPI reads aloud to the patient.
+
+---
+
+### Google Vertex AI — Gemini 2.5 Pro
+
+> **Project:** `ai-projects-481815` · **Region:** `us-central1`
+
+Used inside the VAPI webhook to generate three things per triage:
+
+1. **Routing message** — warm, personalised sentence the voice agent reads aloud
+2. **Differential diagnoses** — 3–5 likely clinical diagnoses as a JSON array
+3. **Clinical summary** — one-paragraph reasoning for the receiving doctor
+
+Gemini receives: patient symptoms, severity score, hospital specialties, and live resource availability (beds, ICU, prices). It returns structured JSON.
+
+**SDK:** `@ai-sdk/google-vertex` via Vercel AI SDK `generateText()`. Auth via service account JSON in `GOOGLE_VERTEX_CREDENTIALS`.
+
+---
+
+### VAPI Webhook — Server Tools
+
+Our `/api/vapi/webhook` (Next.js Route Handler) implements two VAPI server tools:
+
+**`routeToHospital`**
+```
+Input:  { symptoms: string, severity: "critical"|"high"|"medium"|"low" }
+Action: createTriageRequest() → getHospitalResources() → Gemini generateText()
+Output: routing message string (read aloud by Aura)
+```
+
+**`createEscrow`**
+```
+Input:  { amountNaira: number }
+Action: getLatestTriageForPatient() → initializeEscrow() → linkEscrowToTriage()
+Output: confirmation string with transaction reference
+```
+
+---
+
+### Neon PostgreSQL — Database
+
+> **Driver:** `@neondatabase/serverless` (HTTP, edge-compatible)
+
+All data is stored in a single Neon database. Tables:
+
+| Table | Purpose |
+|-------|---------|
+| `user` | Patients, hospitals, and admin accounts |
+| `session` / `account` | Better Auth session management |
+| `patient_hospital_link` | Hospital–patient relationship (pending/approved) |
+| `emr_record` | Imported EMR records per hospital |
+| `hospital_profile` | Description, specialties, bed count, ICU count |
+| `hospital_resource` | Resource inventory with prices |
+| `triage_request` | Full triage record incl. differentials + clinical summary |
+| `escrow_transaction` | Payment escrow lifecycle |
+
+---
+
+### Better Auth — Authentication
+
+> **Version:** 1.5.6
+
+Handles signup, login, session management, and password reset. Custom fields (`role`, `phoneNumber`, `isApproved`) are passed via `inferAdditionalFields`. All auth routes live at `/api/auth/[...all]`.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -147,7 +249,7 @@ Patient Browser
 | Styling | Tailwind CSS v4 |
 | Voice AI | VAPI (GPT-4o, Deepgram nova-3-medical, ElevenLabs) |
 | AI Routing | Vercel AI SDK + @ai-sdk/google-vertex (Gemini 2.5 Pro) |
-| Payments | Interswitch QuickTeller (escrow lifecycle) |
+| Payments | Interswitch QuickTeller sandbox (escrow lifecycle) |
 | Real-time | Server-Sent Events (triage alerts + patient updates) |
 
 ---
