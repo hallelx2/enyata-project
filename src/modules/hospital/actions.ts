@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { FAKE_EMR_PATIENTS } from "@/lib/emr-fake-data";
-import { emrRecord, patientHospitalLink, user } from "@/lib/db/schema";
+import { emrRecord, hospitalProfile, hospitalResource, patientHospitalLink, user } from "@/lib/db/schema";
 
 // ─── EMR ─────────────────────────────────────────────────────────────────────
 
@@ -142,4 +142,50 @@ export async function rejectPatientLink(linkId: string) {
     console.error("Reject patient link failed:", error);
     return { success: false };
   }
+}
+
+// ─── Hospital Profile ─────────────────────────────────────────────────────────
+
+export async function getHospitalProfile(hospitalId: string) {
+  return db.select().from(hospitalProfile).where(eq(hospitalProfile.hospitalId, hospitalId)).then(r => r[0] ?? null);
+}
+
+export async function updateHospitalProfile(hospitalId: string, data: {
+  description?: string; specialties?: string; address?: string;
+  emergencyPhone?: string; bedCount?: number; icuCount?: number;
+}) {
+  const existing = await getHospitalProfile(hospitalId);
+  const now = new Date();
+  if (existing) {
+    await db.update(hospitalProfile).set({ ...data, updatedAt: now }).where(eq(hospitalProfile.hospitalId, hospitalId));
+  } else {
+    await db.insert(hospitalProfile).values({ hospitalId, ...data, updatedAt: now });
+  }
+  revalidatePath("/dashboard/hospital");
+  return { success: true };
+}
+
+export async function getHospitalResources(hospitalId: string) {
+  return db.select().from(hospitalResource).where(eq(hospitalResource.hospitalId, hospitalId));
+}
+
+export async function upsertHospitalResource(hospitalId: string, data: {
+  id?: string; name: string; category: string; totalCount: number;
+  availableCount: number; priceNaira: number; unit: string;
+}) {
+  const id = data.id ?? `res-${hospitalId.slice(-6)}-${Date.now()}`;
+  const now = new Date();
+  if (data.id) {
+    await db.update(hospitalResource).set({ ...data, updatedAt: now }).where(eq(hospitalResource.id, data.id));
+  } else {
+    await db.insert(hospitalResource).values({ id, hospitalId, ...data, updatedAt: now });
+  }
+  revalidatePath("/dashboard/hospital");
+  return { success: true };
+}
+
+export async function deleteHospitalResource(id: string) {
+  await db.delete(hospitalResource).where(eq(hospitalResource.id, id));
+  revalidatePath("/dashboard/hospital");
+  return { success: true };
 }

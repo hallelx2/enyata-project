@@ -32,6 +32,7 @@ export default async function PatientDashboardPage() {
       allHospitals={allHospitals}
       escrows={escrows}
       triageRequests={triageRequests}
+      vapiPhone={process.env.VAPI_PHONE_NUMBER ?? ""}
     />
   );
 }

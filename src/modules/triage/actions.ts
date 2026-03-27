@@ -3,7 +3,7 @@
 import { and, desc, eq, gt, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { patientHospitalLink, triageRequest, user } from "@/lib/db/schema";
+import { hospitalResource, patientHospitalLink, triageRequest, user } from "@/lib/db/schema";
 
 function assessSeverity(
   symptoms: string,
@@ -51,7 +51,7 @@ function assessSeverity(
   return "low";
 }
 
-export async function createTriageRequest(patientId: string, symptoms: string) {
+export async function createTriageRequest(patientId: string, symptoms: string, differentials?: string, clinicalSummary?: string) {
   try {
     const link = await db
       .select({ hospitalId: patientHospitalLink.hospitalId })
@@ -86,6 +86,8 @@ export async function createTriageRequest(patientId: string, symptoms: string) {
       symptoms,
       severity,
       status: "pending",
+      differentials: differentials ?? null,
+      clinicalSummary: clinicalSummary ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -116,6 +118,8 @@ export async function getTriageRequestsForHospital(
       status: triageRequest.status,
       notes: triageRequest.notes,
       escrowRef: triageRequest.escrowRef,
+      differentials: triageRequest.differentials,
+      clinicalSummary: triageRequest.clinicalSummary,
       createdAt: triageRequest.createdAt,
       patientId: triageRequest.patientId,
       patientName: user.name,
@@ -205,4 +209,43 @@ export async function linkEscrowToTriage(triageId: string, escrowRef: string) {
     console.error("Link escrow to triage failed:", error);
     return { success: false };
   }
+}
+
+export async function getPatientTriageUpdates(patientId: string, since: Date) {
+  return db
+    .select({
+      id: triageRequest.id,
+      symptoms: triageRequest.symptoms,
+      severity: triageRequest.severity,
+      status: triageRequest.status,
+      notes: triageRequest.notes,
+      escrowRef: triageRequest.escrowRef,
+      differentials: triageRequest.differentials,
+      clinicalSummary: triageRequest.clinicalSummary,
+      createdAt: triageRequest.createdAt,
+      hospitalId: triageRequest.hospitalId,
+      hospitalName: user.name,
+    })
+    .from(triageRequest)
+    .innerJoin(user, eq(triageRequest.hospitalId, user.id))
+    .where(
+      and(
+        eq(triageRequest.patientId, patientId),
+        gt(triageRequest.updatedAt, since),
+      ),
+    )
+    .orderBy(desc(triageRequest.createdAt));
+}
+
+export async function getHospitalResourcesForRouting(hospitalId: string) {
+  return db
+    .select({
+      name: hospitalResource.name,
+      category: hospitalResource.category,
+      availableCount: hospitalResource.availableCount,
+      priceNaira: hospitalResource.priceNaira,
+      unit: hospitalResource.unit,
+    })
+    .from(hospitalResource)
+    .where(eq(hospitalResource.hospitalId, hospitalId));
 }

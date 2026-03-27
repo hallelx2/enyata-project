@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { DashboardNav } from "../../components/DashboardNav";
 import { VoiceTriage } from "@/components/VoiceTriage";
 import { requestHospitalLink } from "@/modules/patient/actions";
@@ -51,6 +52,7 @@ interface PatientDashboardViewProps {
   allHospitals: Hospital[];
   escrows: EscrowTxn[];
   triageRequests: TriageReq[];
+  vapiPhone?: string;
 }
 
 function statusBadge(status: string) {
@@ -114,10 +116,12 @@ export function PatientDashboardView({
   allHospitals,
   escrows,
   triageRequests: initialTriages,
+  vapiPhone,
 }: PatientDashboardViewProps) {
   const [selectedHospital, setSelectedHospital] = useState("");
   const [linkMsg, setLinkMsg] = useState("");
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   // Triage modal state
   const [triageOpen, setTriageOpen] = useState(false);
@@ -132,6 +136,37 @@ export function PatientDashboardView({
 
   // Escrow pre-auth state
   const [escrowingId, setEscrowingId] = useState<string | null>(null);
+
+  // Patient SSE stream for real-time updates
+  useEffect(() => {
+    const es = new EventSource(`/api/events/patient-stream?patientId=${patientId}`);
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data as string) as {
+        type: string;
+        triages?: Array<{
+          id: string;
+          symptoms: string;
+          severity: string;
+          status: string;
+          escrowRef: string | null;
+          createdAt: Date;
+          hospitalId: string;
+          hospitalName: string;
+        }>;
+      };
+      if (data.type === "link-updated") {
+        router.refresh();
+      } else if (data.type === "triage-updated" && data.triages) {
+        setTriages((prev) =>
+          prev.map((t) => {
+            const updated = data.triages!.find((u) => u.id === t.id);
+            return updated ? { ...t, ...updated } : t;
+          }),
+        );
+      }
+    };
+    return () => es.close();
+  }, [patientId, router]);
 
   const linkedIds = new Set(hospitalLinks.map((l) => l.hospitalId));
   const unlinkedHospitals = allHospitals.filter((h) => !linkedIds.has(h.id));
@@ -260,6 +295,12 @@ export function PatientDashboardView({
                 </span>
                 Can&apos;t use voice? Type instead
               </button>
+              {vapiPhone && (
+                <div className="mt-4 flex items-center gap-2 text-white/70 text-sm">
+                  <span className="material-symbols-outlined text-base">call</span>
+                  <span>Call AuraHealth Doctor: <strong className="text-white">{vapiPhone}</strong></span>
+                </div>
+              )}
             </div>
 
             {/* Triage History */}

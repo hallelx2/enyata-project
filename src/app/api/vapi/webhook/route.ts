@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { generateText } from "ai";
 import { createVertex } from "@ai-sdk/google-vertex";
-import { createTriageRequest, getLatestTriageForPatient } from "@/modules/triage/actions";
+import { createTriageRequest, getLatestTriageForPatient, getHospitalResourcesForRouting } from "@/modules/triage/actions";
 import { initializeMockEscrow } from "@/modules/escrow/actions";
 import { linkEscrowToTriage } from "@/modules/triage/actions";
+import { db } from "@/lib/db";
+import { triageRequest } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 const vertex = createVertex({
   project: process.env.GOOGLE_VERTEX_PROJECT!,
@@ -35,38 +38,68 @@ interface VapiWebhookBody {
   message: VapiMessage;
 }
 
+interface RoutingResult {
+  message: string;
+  differentials: string[]; // e.g. ["STEMI", "Unstable Angina", "Pericarditis"]
+  clinicalSummary: string; // 2-3 sentence clinical assessment for the doctor
+}
+
 async function generateRoutingMessage(
   symptoms: string,
   severity: string,
   hospitalName: string,
-): Promise<string> {
-  try {
-    const { text } = await generateText({
-      model: vertex("gemini-2.5-pro"),
-      prompt: `
-You are generating a voice response for AuraHealth's triage assistant to read aloud.
-
-Patient symptoms: "${symptoms}"
-Severity level: ${severity}
-Routed to: ${hospitalName}
-
-Write a warm, empathetic 2-3 sentence response confirming the routing.
-Rules:
-- Do NOT use clinical severity labels (low/medium/high/critical) directly
-- Be reassuring and professional
-- Tell them to proceed to the hospital
-- If severity is critical or high, add a note about urgency
-- Write ONLY the response text — no quotes, labels, or extra formatting
-      `.trim(),
-    });
-    return text;
-  } catch {
-    // Fallback if AI call fails
+  resources: Array<{ name: string; category: string; availableCount: number | null; priceNaira: number | null; unit: string | null }>,
+): Promise<RoutingResult> {
+  const fallbackMessage = (() => {
     const urgency =
       severity === "critical" || severity === "high"
         ? " Given the urgency of your symptoms, please proceed immediately."
         : "";
     return `I've assessed your symptoms and you're being routed to ${hospitalName}. They've been notified and are expecting you.${urgency} Please make your way there as soon as you can.`;
+  })();
+  const fallback: RoutingResult = { message: fallbackMessage, differentials: [], clinicalSummary: "" };
+
+  try {
+    const resourcesText = resources.length > 0
+      ? `\nHospital available resources:\n${resources.map(r => `- ${r.name} (${r.category}): ${r.availableCount ?? 0} available @ ₦${r.priceNaira ?? 0}/${r.unit ?? "unit"}`).join("\n")}`
+      : "";
+
+    const { text } = await generateText({
+      model: vertex("gemini-2.5-pro"),
+      prompt: `
+You are generating a clinical routing response for AuraHealth's triage assistant.
+
+Patient symptoms: "${symptoms}"
+Severity level: ${severity}
+Routed to: ${hospitalName}${resourcesText}
+
+Return a JSON object with these exact keys:
+- "message": warm 2-3 sentence routing message to read aloud to patient (no clinical labels)
+- "differentials": array of 3-5 differential diagnosis strings (medical terms)
+- "clinicalSummary": 2-3 sentence clinical summary for the receiving doctor/nurse
+
+Rules for message:
+- Do NOT use clinical severity labels (low/medium/high/critical) directly
+- Be reassuring and professional
+- Tell them to proceed to the hospital
+- If severity is critical or high, add a note about urgency
+
+Respond ONLY with valid JSON, no markdown.
+      `.trim(),
+    });
+
+    try {
+      const parsed = JSON.parse(text) as Partial<RoutingResult>;
+      return {
+        message: typeof parsed.message === "string" ? parsed.message : fallbackMessage,
+        differentials: Array.isArray(parsed.differentials) ? parsed.differentials as string[] : [],
+        clinicalSummary: typeof parsed.clinicalSummary === "string" ? parsed.clinicalSummary : "",
+      };
+    } catch {
+      return fallback;
+    }
+  } catch {
+    return fallback;
   }
 }
 
@@ -107,7 +140,22 @@ export async function POST(request: Request) {
           const latest = await getLatestTriageForPatient(patientId);
           const hospitalName = latest?.hospitalName ?? "your linked hospital";
 
-          result = await generateRoutingMessage(symptoms, severity, hospitalName);
+          // Fetch hospital resources to inform routing message
+          const resources = latest
+            ? await getHospitalResourcesForRouting(latest.hospitalId)
+            : [];
+
+          const routing = await generateRoutingMessage(symptoms, severity, hospitalName, resources);
+          result = routing.message;
+
+          // Update triage record with AI-generated differentials and clinical summary
+          if (latest) {
+            await db.update(triageRequest).set({
+              differentials: JSON.stringify(routing.differentials),
+              clinicalSummary: routing.clinicalSummary,
+              updatedAt: new Date(),
+            }).where(eq(triageRequest.id, latest.id));
+          }
         } else {
           result =
             triage.message ??

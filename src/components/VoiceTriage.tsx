@@ -38,6 +38,13 @@ export function VoiceTriage({ patientId, patientName, onComplete }: VoiceTriageP
     vapi.on("speech-start", () => setIsSpeaking(true));
     vapi.on("speech-end", () => setIsSpeaking(false));
 
+    // biome-ignore lint/suspicious/noExplicitAny: VAPI error type is loose
+    vapi.on("error", (err: any) => {
+      console.error("VAPI error:", err);
+      setStatus("idle");
+      setIsSpeaking(false);
+    });
+
     // biome-ignore lint/suspicious/noExplicitAny: VAPI message types are loose
     vapi.on("message", (msg: any) => {
       if (

@@ -2,6 +2,8 @@ import { DashboardNav } from "../../components/DashboardNav";
 import { TriageInbox } from "../components/TriageInbox";
 import { ResourcePanel } from "../components/ResourcePanel";
 import { EMRSyncPanel } from "../components/EMRSyncPanel";
+import { PatientsPanel } from "../components/PatientsPanel";
+import { HospitalProfilePanel } from "../components/HospitalProfilePanel";
 
 interface PendingRequest {
   linkId: string;
@@ -13,6 +15,28 @@ interface PendingRequest {
   requestedAt: Date;
 }
 
+interface LinkedPatient {
+  linkId: string;
+  patientId: string;
+  patientName: string;
+  patientEmail: string;
+  patientPhone: string | null;
+  status: string;
+  approvedAt: Date | null;
+}
+
+interface EMRRecord {
+  id: string;
+  patientName: string;
+  patientEmail: string | null;
+  patientPhone: string | null;
+  dateOfBirth: string | null;
+  bloodType: string | null;
+  conditions: string | null;
+  lastVisit: string | null;
+  auraId: string | null;
+}
+
 interface TriageItem {
   id: string;
   patientName: string;
@@ -22,25 +46,52 @@ interface TriageItem {
   status: string;
   notes: string | null;
   escrowRef: string | null;
+  differentials: string | null;
+  clinicalSummary: string | null;
   createdAt: Date;
+}
+
+interface HospitalProfile {
+  description: string | null;
+  specialties: string | null;
+  address: string | null;
+  emergencyPhone: string | null;
+  bedCount: number | null;
+  icuCount: number | null;
+}
+
+interface HospitalResource {
+  id: string;
+  name: string;
+  category: string;
+  totalCount: number;
+  availableCount: number;
+  priceNaira: number;
+  unit: string;
 }
 
 interface HospitalDashboardViewProps {
   hospitalId: string;
   hospitalName: string;
   hospitalEmail: string;
-  emrCount: number;
+  emrRecords: EMRRecord[];
+  linkedPatients: LinkedPatient[];
   pendingRequests: PendingRequest[];
   triageRequests: TriageItem[];
+  hospitalProfile: HospitalProfile | null;
+  hospitalResources: HospitalResource[];
 }
 
 export function HospitalDashboardView({
   hospitalId,
   hospitalName,
   hospitalEmail,
-  emrCount,
+  emrRecords,
+  linkedPatients,
   pendingRequests,
   triageRequests,
+  hospitalProfile,
+  hospitalResources,
 }: HospitalDashboardViewProps) {
   return (
     <div className="min-h-screen bg-background pb-20 md:pb-0">
@@ -78,17 +129,25 @@ export function HospitalDashboardView({
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Triage inbox spans 8 columns */}
-          <TriageInbox hospitalId={hospitalId} initialTriages={triageRequests} />
+          {/* Left: Triage inbox (8 cols) + patients panel below */}
+          <div className="lg:col-span-8 space-y-8">
+            <TriageInbox hospitalId={hospitalId} initialTriages={triageRequests} />
+            <PatientsPanel linkedPatients={linkedPatients} emrRecords={emrRecords} totalLinked={linkedPatients.length} />
+          </div>
 
-          {/* Right column: EMR sync + resource panel */}
+          {/* Right column: EMR sync + resource panel + profile */}
           <div className="lg:col-span-4 space-y-8">
             <EMRSyncPanel
               hospitalId={hospitalId}
-              initialEmrCount={emrCount}
+              initialEmrCount={emrRecords.length}
               initialPendingRequests={pendingRequests}
             />
             <ResourcePanel />
+            <HospitalProfilePanel
+              hospitalId={hospitalId}
+              initialProfile={hospitalProfile}
+              initialResources={hospitalResources}
+            />
           </div>
         </div>
       </main>

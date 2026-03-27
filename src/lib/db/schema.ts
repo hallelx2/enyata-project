@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const user = pgTable("user", {
@@ -24,6 +24,8 @@ export const userRelations = relations(user, ({ many }) => ({
   hospitalEscrows: many(escrowTransaction, { relationName: "hospitalEscrows" }),
   patientTriages: many(triageRequest, { relationName: "patientTriages" }),
   hospitalTriages: many(triageRequest, { relationName: "hospitalTriages" }),
+  hospitalProfiles: many(hospitalProfile),
+  hospitalResources: many(hospitalResource),
 }));
 
 export const session = pgTable("session", {
@@ -190,6 +192,8 @@ export const triageRequest = pgTable("triage_request", {
   status: text("status").notNull().default("pending"),
   notes: text("notes"),
   escrowRef: text("escrow_ref"),
+  differentials: text("differentials"), // JSON array string e.g. '["STEMI","Unstable Angina"]'
+  clinicalSummary: text("clinical_summary"), // AI clinical reasoning paragraph
   createdAt: timestamp("created_at").notNull(),
   updatedAt: timestamp("updated_at").notNull(),
 });
@@ -205,4 +209,36 @@ export const triageRequestRelations = relations(triageRequest, ({ one }) => ({
     references: [user.id],
     relationName: "hospitalTriages",
   }),
+}));
+
+export const hospitalProfile = pgTable("hospital_profile", {
+  hospitalId: text("hospital_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  description: text("description"),
+  specialties: text("specialties"), // comma-separated e.g. "Cardiology,Emergency,Pediatrics"
+  address: text("address"),
+  emergencyPhone: text("emergency_phone"),
+  bedCount: integer("bed_count").default(0),
+  icuCount: integer("icu_count").default(0),
+  emergencyServices: boolean("emergency_services").default(true),
+  updatedAt: timestamp("updated_at").notNull(),
+});
+
+export const hospitalProfileRelations = relations(hospitalProfile, ({ one }) => ({
+  hospital: one(user, { fields: [hospitalProfile.hospitalId], references: [user.id] }),
+}));
+
+export const hospitalResource = pgTable("hospital_resource", {
+  id: text("id").primaryKey(),
+  hospitalId: text("hospital_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  category: text("category").notNull(), // 'equipment' | 'staff' | 'bed' | 'medicine' | 'procedure'
+  totalCount: integer("total_count").notNull().default(0),
+  availableCount: integer("available_count").notNull().default(0),
+  priceNaira: integer("price_naira").default(0), // price in naira
+  unit: text("unit").default("units"),
+  updatedAt: timestamp("updated_at").notNull(),
+});
+
+export const hospitalResourceRelations = relations(hospitalResource, ({ one }) => ({
+  hospital: one(user, { fields: [hospitalResource.hospitalId], references: [user.id] }),
 }));

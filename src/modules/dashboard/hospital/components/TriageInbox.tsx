@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { updateTriageStatus } from "@/modules/triage/actions";
 import { releaseEscrow } from "@/modules/escrow/actions";
 
@@ -13,6 +14,8 @@ interface TriageItem {
   status: string;
   notes: string | null;
   escrowRef: string | null;
+  differentials: string | null;
+  clinicalSummary: string | null;
   createdAt: Date | string;
 }
 
@@ -62,6 +65,7 @@ export function TriageInbox({ hospitalId, initialTriages }: TriageInboxProps) {
   const [triages, setTriages] = useState<TriageItem[]>(initialTriages);
   const [newAlert, setNewAlert] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   useEffect(() => {
     const es = new EventSource(`/api/triage/stream?hospitalId=${hospitalId}`);
@@ -69,19 +73,29 @@ export function TriageInbox({ hospitalId, initialTriages }: TriageInboxProps) {
     es.onmessage = (e) => {
       const data = JSON.parse(e.data as string) as {
         type: string;
-        triages: TriageItem[];
+        triages?: TriageItem[];
+        count?: number;
       };
       if (data.type === "init") {
-        setTriages(data.triages);
+        setTriages(data.triages ?? []);
       } else if (data.type === "new") {
-        setTriages((prev) => [...data.triages, ...prev]);
+        setTriages((prev) => [...(data.triages ?? []), ...prev]);
         setNewAlert(true);
         setTimeout(() => setNewAlert(false), 6000);
+      } else if (data.type === "updated") {
+        setTriages((prev) =>
+          prev.map((t) => {
+            const updated = (data.triages ?? []).find((u) => u.id === t.id);
+            return updated ? { ...t, ...updated } : t;
+          }),
+        );
+      } else if (data.type === "patient-approved") {
+        router.refresh();
       }
     };
 
     return () => es.close();
-  }, [hospitalId]);
+  }, [hospitalId, router]);
 
   const handleStatus = (id: string, status: "in_progress" | "resolved") => {
     startTransition(async () => {
@@ -167,6 +181,36 @@ export function TriageInbox({ hospitalId, initialTriages }: TriageInboxProps) {
               <p className="text-sm text-on-surface bg-surface-container-low px-4 py-3 rounded-xl mb-4 leading-relaxed">
                 {t.symptoms}
               </p>
+
+              {(t.differentials || t.clinicalSummary) && (
+                <details className="mb-4">
+                  <summary className="cursor-pointer text-xs font-bold text-blue-700 flex items-center gap-1.5 select-none list-none mb-2">
+                    <span className="material-symbols-outlined text-sm">psychology</span>
+                    Clinical AI Assessment
+                  </summary>
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 space-y-2">
+                    {t.differentials && (() => {
+                      try {
+                        const diffs = JSON.parse(t.differentials) as string[];
+                        return diffs.length > 0 ? (
+                          <div>
+                            <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Differentials</p>
+                            <p className="text-sm text-blue-900">{diffs.join(", ")}</p>
+                          </div>
+                        ) : null;
+                      } catch {
+                        return null;
+                      }
+                    })()}
+                    {t.clinicalSummary && (
+                      <div>
+                        <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1">Clinical Summary</p>
+                        <p className="text-sm text-blue-900 leading-relaxed">{t.clinicalSummary}</p>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
 
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <p className="text-xs text-on-surface-variant">

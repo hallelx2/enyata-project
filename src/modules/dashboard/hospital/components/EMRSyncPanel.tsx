@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   importEMRData,
   getPendingPatientRequests,
@@ -35,6 +36,7 @@ export function EMRSyncPanel({
   );
   const [syncMsg, setSyncMsg] = useState("");
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   const handleSync = () => {
     startTransition(async () => {
@@ -51,6 +53,7 @@ export function EMRSyncPanel({
       const result = await approvePatientLink(linkId);
       if (result.success) {
         setPendingRequests((prev) => prev.filter((r) => r.linkId !== linkId));
+        router.refresh();
       }
     });
   };
