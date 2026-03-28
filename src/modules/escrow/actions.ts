@@ -46,7 +46,7 @@ export async function initializeEscrow(params: {
 
     const paymentUrl = buildPaymentRedirectUrl({
       txnRef,
-      amount: amountKobo,
+      amountNaira: params.amountNaira,
       customerEmail: params.patientEmail,
       customerName: params.patientName,
       description: params.description,

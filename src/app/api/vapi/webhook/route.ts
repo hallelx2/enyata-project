@@ -8,13 +8,19 @@ import { db } from "@/lib/db";
 import { triageRequest } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
-const vertex = createVertex({
-  project: process.env.GOOGLE_VERTEX_PROJECT!,
-  location: process.env.GOOGLE_VERTEX_LOCATION ?? "us-central1",
-  googleAuthOptions: {
-    credentials: JSON.parse(process.env.GOOGLE_VERTEX_CREDENTIALS!),
-  },
-});
+// Vertex client is created lazily inside generateRoutingMessage so that
+// JSON.parse(GOOGLE_VERTEX_CREDENTIALS) never runs at module-evaluation
+// time (which would crash Vercel's static page collection when the env
+// var is absent during the build step).
+function getVertex() {
+  return createVertex({
+    project: process.env.GOOGLE_VERTEX_PROJECT ?? "",
+    location: process.env.GOOGLE_VERTEX_LOCATION ?? "us-central1",
+    googleAuthOptions: {
+      credentials: JSON.parse(process.env.GOOGLE_VERTEX_CREDENTIALS ?? "{}"),
+    },
+  });
+}
 
 interface VapiToolCall {
   id: string;
@@ -65,7 +71,7 @@ async function generateRoutingMessage(
       : "";
 
     const { text } = await generateText({
-      model: vertex("gemini-2.5-pro"),
+      model: getVertex()("gemini-2.5-pro"),
       prompt: `
 You are generating a clinical routing response for AuraHealth's triage assistant.
 

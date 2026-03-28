@@ -1,165 +1,186 @@
 /**
- * Interswitch QuickTeller Web payment integration (sandbox).
+ * Interswitch QuickTeller Business — Sandbox integration
  *
- * Sandbox base:  https://sandbox.interswitchng.com
- * OAuth token:   POST /passport/oauth/token
- * Pay status:    GET  /collections/api/v1/gettransaction.json?merchantcode=&transactionreference=&amount=
+ * Sandbox base:      https://sandbox.interswitchng.com
+ * OAuth token:       POST /passport/oauth/token
+ * Payment page:      https://sandbox.interswitchng.com/collections/w/pay
+ * Transaction query: GET  /collections/api/v1/gettransaction.json
  *
- * Default test credentials (publicly documented by Interswitch):
- *   Client ID:     IKIAB23A4E2756605C1ABC33CE3C287E27267F660D61
- *   Secret:        secret
- *   Merchant Code: MX6072
- *   Pay Item ID:   9405967
+ * Required environment variables (set in Vercel + .env.local):
+ *   INTERSWITCH_CLIENT_ID      — from Interswitch dashboard (API/SDK → Client ID)
+ *   INTERSWITCH_SECRET         — from Interswitch dashboard (API/SDK → Secret key)
+ *   INTERSWITCH_MERCHANT_CODE  — from Interswitch dashboard (Merchant Credentials)
+ *   INTERSWITCH_PAY_ITEM_ID    — from Interswitch dashboard (Pay item ID)
+ *   INTERSWITCH_PRODUCT_ID     — numeric product ID from Interswitch dashboard
+ *   INTERSWITCH_MAC_KEY        — MAC key from Interswitch (sandbox demo key below)
+ *   NEXT_PUBLIC_INTERSWITCH_ENV— "sandbox" (default) or "production"
  *
- * To use live credentials, set INTERSWITCH_CLIENT_ID, INTERSWITCH_SECRET,
- * INTERSWITCH_MERCHANT_CODE, INTERSWITCH_PAY_ITEM_ID in .env.local and
- * NEXT_PUBLIC_INTERSWITCH_ENV=production.
+ * Sandbox demo MAC key (use until Interswitch provides a merchant-specific one):
+ *   D3D1D05AFE42AD50818167EAC73C109168A0F108F32645C8B59E897FA930DA44F9230910DAC9E20641823799A107A02068F7BC0F4CC41D2952E249552255710F
  */
 
-import crypto from "crypto";
+import crypto from "node:crypto";
 
 const IS_PRODUCTION =
   process.env.NEXT_PUBLIC_INTERSWITCH_ENV === "production";
 
 const SANDBOX_BASE = "https://sandbox.interswitchng.com";
-const PROD_BASE = "https://webpay.interswitchng.com";
+const PROD_BASE    = "https://webpay.interswitchng.com";
 
 export const ISW_CONFIG = {
-  base: IS_PRODUCTION ? PROD_BASE : SANDBOX_BASE,
-  clientId:
-    process.env.INTERSWITCH_CLIENT_ID ??
-    "IKIAB23A4E2756605C1ABC33CE3C287E27267F660D61",
-  secret: process.env.INTERSWITCH_SECRET ?? "secret",
-  merchantCode: process.env.INTERSWITCH_MERCHANT_CODE ?? "MX6072",
-  payItemId: process.env.INTERSWITCH_PAY_ITEM_ID ?? "9405967",
-  // Payment page URL (redirect approach)
+  base:         IS_PRODUCTION ? PROD_BASE : SANDBOX_BASE,
+  clientId:     process.env.INTERSWITCH_CLIENT_ID    ?? "",
+  secret:       process.env.INTERSWITCH_SECRET       ?? "",
+  merchantCode: process.env.INTERSWITCH_MERCHANT_CODE ?? "",
+  payItemId:    process.env.INTERSWITCH_PAY_ITEM_ID   ?? "",
+  /** Numeric product ID — find this on the Interswitch dashboard */
+  productId:    process.env.INTERSWITCH_PRODUCT_ID    ?? "",
+  /**
+   * MAC key — provided by Interswitch; for sandbox testing use the
+   * demo key documented at sandbox.interswitchng.com/docbase
+   */
+  macKey:       process.env.INTERSWITCH_MAC_KEY ?? "",
   paymentPageUrl: IS_PRODUCTION
     ? "https://webpay.interswitchng.com/collections/w/pay"
     : "https://sandbox.interswitchng.com/collections/w/pay",
 };
 
-/** Generate a unique transaction reference */
+/** Generate a unique transaction reference (max 15 chars alphanumeric) */
 export function generateTxnRef(): string {
-  const timestamp = Date.now().toString();
-  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-  return `AUR-${timestamp}-${random}`;
+  const ts  = Date.now().toString().slice(-8);
+  const rnd = Math.random().toString(36).substring(2, 7).toUpperCase();
+  return `AUR${ts}${rnd}`;
 }
 
 /**
- * Build the SHA-512 hash required by Interswitch for the payment page.
- * hash = SHA512(txnRef + productId + payItemId + amount + site_redirect_url + merchantCode + clientId + secret)
+ * SHA-512 hash required by QuickTeller Web.
+ *
+ * Official formula (Interswitch DocBase — request-hash-calculation):
+ *   SHA512( txn_ref + product_id + pay_item_id + amount + site_redirect_url + MacKey )
+ *
+ * Amount must be in kobo (₦ × 100). No separators between values.
  */
 export function buildPaymentHash(params: {
   txnRef: string;
-  amount: string; // in kobo
+  amountKobo: string;
   redirectUrl: string;
 }): string {
   const raw = [
     params.txnRef,
+    ISW_CONFIG.productId,
     ISW_CONFIG.payItemId,
-    ISW_CONFIG.payItemId,
-    params.amount,
+    params.amountKobo,
     params.redirectUrl,
-    ISW_CONFIG.merchantCode,
-    ISW_CONFIG.clientId,
-    ISW_CONFIG.secret,
+    ISW_CONFIG.macKey,
   ].join("");
 
   return crypto.createHash("sha512").update(raw).digest("hex");
 }
 
 /**
- * Build the full set of query params to redirect the user to the
- * Interswitch hosted payment page.
+ * Build the POST body / query string for the Interswitch hosted payment page.
+ * Amount is in Naira — converted to kobo internally.
+ *
+ * Official field names per Interswitch DocBase — http-post-form-fields:
+ *   merchant_code, pay_item_id, txn_ref, amount (kobo), currency (566=NGN),
+ *   site_redirect_url, cust_id, hash, mode
  */
 export function buildPaymentRedirectUrl(params: {
   txnRef: string;
-  amount: string; // in kobo
+  amountNaira: number;
   customerEmail: string;
   customerName: string;
   description: string;
   redirectUrl: string;
 }): string {
+  const amountKobo = String(params.amountNaira * 100);
+
   const hash = buildPaymentHash({
     txnRef: params.txnRef,
-    amount: params.amount,
+    amountKobo,
     redirectUrl: params.redirectUrl,
   });
 
   const qs = new URLSearchParams({
-    merchantCode: ISW_CONFIG.merchantCode,
-    payItemID: ISW_CONFIG.payItemId,
-    amount: params.amount,
-    transactionreference: params.txnRef,
-    customer_id: params.customerEmail,
-    customer_lastname: params.customerName,
-    site_redirect_url: params.redirectUrl,
-    pay_item_name: params.description,
+    merchant_code:      ISW_CONFIG.merchantCode,
+    pay_item_id:        ISW_CONFIG.payItemId,
+    txn_ref:            params.txnRef,
+    amount:             amountKobo,
+    currency:           "566",           // NGN ISO 4217 numeric
+    site_redirect_url:  params.redirectUrl,
+    cust_id:            params.customerEmail,
+    cust_name:          params.customerName,
+    pay_item_name:      params.description,
     hash,
-    mode: "TEST",
+    mode: IS_PRODUCTION ? "LIVE" : "TEST",
   });
 
   return `${ISW_CONFIG.paymentPageUrl}?${qs.toString()}`;
 }
 
-export interface ISWTransactionStatus {
-  ResponseCode: string;
-  ResponseDescription: string;
-  Amount: string;
-  TransactionReference: string;
-  PaymentReference: string;
-  MerchantStoreId: string;
-}
-
-/**
- * Query Interswitch sandbox to verify transaction status.
- * Used in the webhook/callback handler after the user returns from payment page.
- */
-export async function queryTransactionStatus(
-  txnRef: string,
-  amountInKobo: string,
-): Promise<ISWTransactionStatus | null> {
+/** Get a short-lived OAuth bearer token from Interswitch Passport */
+export async function getAccessToken(): Promise<string | null> {
   try {
-    // OAuth token first
-    const tokenRes = await fetch(
-      `${ISW_CONFIG.base}/passport/oauth/token`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${Buffer.from(
-            `${ISW_CONFIG.clientId}:${ISW_CONFIG.secret}`,
-          ).toString("base64")}`,
-        },
-        body: new URLSearchParams({ grant_type: "client_credentials" }),
+    const res = await fetch(`${ISW_CONFIG.base}/passport/oauth/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${Buffer.from(
+          `${ISW_CONFIG.clientId}:${ISW_CONFIG.secret}`,
+        ).toString("base64")}`,
       },
-    );
-
-    if (!tokenRes.ok) return null;
-    const { access_token } = (await tokenRes.json()) as {
-      access_token: string;
-    };
-
-    // Query transaction status
-    const statusUrl = new URL(
-      `${ISW_CONFIG.base}/collections/api/v1/gettransaction.json`,
-    );
-    statusUrl.searchParams.set("merchantcode", ISW_CONFIG.merchantCode);
-    statusUrl.searchParams.set("transactionreference", txnRef);
-    statusUrl.searchParams.set("amount", amountInKobo);
-
-    const statusRes = await fetch(statusUrl.toString(), {
-      headers: { Authorization: `Bearer ${access_token}` },
+      body: new URLSearchParams({ grant_type: "client_credentials" }),
     });
-
-    if (!statusRes.ok) return null;
-    return (await statusRes.json()) as ISWTransactionStatus;
+    if (!res.ok) return null;
+    const json = (await res.json()) as { access_token?: string };
+    return json.access_token ?? null;
   } catch {
     return null;
   }
 }
 
-/** ResponseCode "00" means successful payment in Interswitch */
+export interface ISWTransactionStatus {
+  ResponseCode:         string;
+  ResponseDescription:  string;
+  Amount:               string;
+  TransactionReference: string;
+  PaymentReference:     string;
+  MerchantStoreId:      string;
+}
+
+/**
+ * Verify a completed transaction with Interswitch.
+ * Call from /api/escrow/callback after the user returns from the payment page.
+ *
+ * Uses: GET /collections/api/v1/gettransaction.json (Bearer token auth)
+ * Amount must be in kobo.
+ */
+export async function queryTransactionStatus(
+  txnRef: string,
+  amountKobo: string,
+): Promise<ISWTransactionStatus | null> {
+  try {
+    const token = await getAccessToken();
+    if (!token) return null;
+
+    const url = new URL(
+      `${ISW_CONFIG.base}/collections/api/v1/gettransaction.json`,
+    );
+    url.searchParams.set("merchantcode",         ISW_CONFIG.merchantCode);
+    url.searchParams.set("transactionreference", txnRef);
+    url.searchParams.set("amount",               amountKobo);
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ISWTransactionStatus;
+  } catch {
+    return null;
+  }
+}
+
+/** ResponseCode "00" = successful payment */
 export function isPaymentSuccessful(status: ISWTransactionStatus): boolean {
   return status.ResponseCode === "00";
 }
