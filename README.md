@@ -1,8 +1,21 @@
 # AuraHealth — Enyata × Interswitch Buildathon Submission
 
-> **Intelligent hospital triage, care coordination, and end-to-end payment orchestration for Nigeria**
+> **Powered by Interswitch QuickTeller — eliminating Nigeria's hospital payment queues through AI triage and escrow-backed care**
 
 **Live Link:** https://aurahealth-five.vercel.app
+
+---
+
+## Interswitch APIs Used
+
+| API | Endpoint | Purpose |
+|-----|----------|---------|
+| OAuth 2.0 token | `POST /passport/oauth/token` | Authenticate every server-side request to Interswitch |
+| Hosted payment page | `GET /collections/w/pay` | Patient pays escrow — card, bank transfer, or USSD |
+| Transaction verification | `GET /collections/api/v1/gettransaction.json` | Server-side confirmation before funds are marked as held |
+| *(Next)* Identity verification | Interswitch KYC API | Verify patient and hospital identity at onboarding |
+
+All three live APIs run against the **QuickTeller Business Sandbox** (`sandbox.interswitchng.com`). The integration is in [`src/lib/interswitch.ts`](src/lib/interswitch.ts) and [`src/app/api/escrow/callback/route.ts`](src/app/api/escrow/callback/route.ts).
 
 ---
 
@@ -29,10 +42,12 @@ AuraHealth eliminates this queue entirely. A single voice call to our AI agent c
 | Step | Actor | Page |
 |------|-------|------|
 | Register with name, email, specialties | Hospital | [/signup](https://aurahealth-five.vercel.app/signup) |
-| Review and approve/reject | Admin | [/admin](https://aurahealth-five.vercel.app/admin) |
-| Set hospital profile, resources & prices | Hospital | [/dashboard/hospital](https://aurahealth-five.vercel.app/dashboard/hospital) |
+| Auto-approved — dashboard opens immediately | System | — |
+| Complete profile: description, specialties, beds, ICU count | Hospital | [/dashboard/hospital](https://aurahealth-five.vercel.app/dashboard/hospital) |
+| Register bank account (Interswitch merchant) | Hospital | Hospital Profile tab |
+| Set resource inventory with prices in ₦ | Hospital | Resources tab |
 
-The hospital fills in its resource inventory — beds, ICU slots, lab kits, surgical teams — each with a count and a price in ₦. These feed directly into the AI agent's routing decisions.
+The hospital fills in its resource inventory — beds, ICU slots, lab kits, surgical teams — each with a count and a price in ₦. These feed directly into the AI agent's routing decisions. The hospital's registered bank account is where Interswitch disburses escrow payments when the hospital marks treatment complete.
 
 ### 2. Patient Onboarding
 
@@ -41,6 +56,20 @@ The hospital fills in its resource inventory — beds, ICU slots, lab kits, surg
 | Register with name, email, phone | Patient | [/signup](https://aurahealth-five.vercel.app/signup) |
 | Auto-matched to an approved hospital | System | — |
 | Optionally link to a specific hospital | Patient → Hospital | [/dashboard/patient](https://aurahealth-five.vercel.app/dashboard/patient) |
+
+### 2b. Patient Payment Source Linking
+
+Before (or after) their first triage, patients link their payment sources:
+
+| Source | How |
+|--------|-----|
+| Debit/credit card | Linked via Interswitch hosted payment page |
+| Bank account (direct debit) | Account number + bank code registered with Interswitch |
+| HMO / Insurance | Policy number + insurer code registered with AuraHealth |
+
+AuraHealth stores a reference to the patient's preferred payment source. When the patient confirms pre-authorisation during a voice call, the escrow debit hits **whichever source they have linked** — card, account, or HMO. The patient does not need to open a browser or enter card details during the emergency.
+
+---
 
 ### 3. Emergency — Voice Triage with Aura
 
@@ -64,17 +93,46 @@ When care is complete, the hospital clicks **Release Escrow** on the triage card
 
 ---
 
+## Payment Architecture
+
+AuraHealth sits at the centre of every transaction — not as a bank, but as a **payment orchestrator**. Here is how money flows:
+
+```text
+Patient payment source          AuraHealth Escrow           Hospital bank account
+──────────────────────          ─────────────────           ─────────────────────
+ Card / Bank account  ───────►  Holds funds until  ──────►  Registered Interswitch
+ HMO / Insurer                  treatment confirmed          merchant account
+```
+
+**Why this works:**
+
+1. **Hospital registers a bank account** with AuraHealth at onboarding. Interswitch has this account on file as the merchant destination for escrow disbursements. The hospital never handles card data.
+
+2. **Patient links a payment source** — a debit card, a bank account (direct debit), or an HMO/insurance policy number. AuraHealth stores the source reference, not the raw card data.
+
+3. **During a voice triage**, Aura confirms the estimated cost and the patient says "Yes". AuraHealth debits the patient's linked source via Interswitch's hosted payment page and holds the funds in escrow.
+
+4. **At each stage of in-hospital care** — bed, labs, pharmacy, procedures — the hospital can draw from the escrow balance. No cash, no new queue.
+
+5. **When care is complete**, the hospital clicks Release Escrow. Interswitch transfers the balance from the escrow hold to the hospital's registered bank account. The patient receives an itemised receipt.
+
+6. **If the patient has HMO coverage**, the insurer is billed instead of (or alongside) the patient's bank account. The hospital still receives the same guaranteed payment — the source is abstracted away.
+
+---
+
 ## Full Sequence Diagram
 
 ```mermaid
 sequenceDiagram
+    participant PS as Payment Source (Card / HMO)
     participant P as Patient (Browser)
     participant V as VAPI (Voice AI)
     participant W as /api/vapi/webhook
     participant G as Gemini 2.5 Pro
     participant DB as Database
+    participant I as Interswitch QuickTeller
     participant H as Hospital Dashboard
-    participant I as Interswitch Escrow
+    participant HB as Hospital Bank Account
 
     P->>V: Start voice call (WebRTC)
     V->>P: "Hi, I'm Aura. What brings you in today?"
@@ -87,22 +145,27 @@ sequenceDiagram
     W->>DB: save differentials + clinicalSummary to triage
     W-->>V: routingMessage text
     V->>P: Reads routing message aloud
-    V->>P: "Shall I pre-authorise ₦X for your care?"
+    V->>P: "Shall I pre-authorise ₦5,000 for your care?"
     P->>V: "Yes"
-    V->>W: Tool call: createEscrow(amountNaira)
-    W->>I: initializeEscrow(patientId, hospitalId, amount)
-    I-->>W: { txnRef, status: "held" }
-    W->>DB: linkEscrowToTriage(triageId, txnRef)
-    W-->>V: "Payment of ₦X pre-authorised. Reference: MOCK-..."
-    V->>P: Reads confirmation
-    DB-->>H: SSE push → new triage alert (Live updates every 5s)
+    V->>W: Tool call: createEscrow(confirmed: true)
+    W->>I: OAuth token (client_credentials)
+    I-->>W: Bearer token
+    W->>I: POST payment page redirect (SHA-512 signed)
+    I->>PS: Charge patient's linked card / debit account / HMO
+    PS-->>I: Payment authorised
+    I-->>W: txnRef + PaymentReference
+    W->>DB: linkEscrowToTriage(triageId, txnRef, status: "held")
+    W-->>V: "₦5,000 pre-authorised. Reference: AUR..."
+    V->>P: Reads confirmation aloud
+    DB-->>H: SSE push → new triage alert (poll every 5s)
     H->>H: Show triage card with differentials + clinical summary
     Note over H: Doctor reviews AI assessment, starts treatment
     H->>DB: updateTriageStatus(id, "in_progress")
     DB-->>P: SSE push → patient dashboard updates to "In Progress"
-    Note over H: Treatment complete
-    H->>I: releaseEscrow(txnRef)
-    I-->>H: Payment settled
+    Note over H: Treatment complete — each stage drawn from escrow
+    H->>DB: releaseEscrow(txnRef)
+    DB->>I: Trigger disbursement
+    I->>HB: Transfer held funds to hospital bank account
     H->>DB: updateTriageStatus(id, "resolved")
     DB-->>P: SSE push → patient dashboard updates to "Resolved"
 ```
@@ -137,20 +200,27 @@ Patient Browser
 
 ## APIs Used
 
-### Interswitch QuickTeller — Payments & Escrow
+### Interswitch QuickTeller Business — Payments & Escrow
 
-> **Environment:** Sandbox / Test
+> **Environment:** Sandbox (`sandbox.interswitchng.com`)
 
-AuraHealth uses the Interswitch QuickTeller API for all payment operations. Every escrow transaction is created, held, and released through QuickTeller's payment infrastructure.
+AuraHealth uses the Interswitch QuickTeller Business API for all payment operations. The integration uses three distinct API surfaces:
 
-| Operation | Endpoint | When |
-|-----------|----------|------|
-| Initiate payment | `POST /quickteller/api/v5/transactions` | Patient confirms pre-auth during voice triage |
-| Query status | `GET /quickteller/api/v5/transactions/{txnRef}` | Verify escrow hold before releasing |
-| Release funds | `POST /quickteller/api/v5/transactions/release` | Hospital marks treatment complete |
-| Payment callback | `/api/escrow/callback` (our webhook) | QuickTeller notifies us of status changes |
+| Step | API | When |
+|------|-----|------|
+| Get bearer token | `POST /passport/oauth/token` (Basic auth, `client_credentials`) | Before every payment or query |
+| Redirect to payment page | `GET /collections/w/pay?merchant_code=...&hash=...` | Patient pre-authorises escrow during triage |
+| Verify transaction | `GET /collections/api/v1/gettransaction.json` (Bearer token) | After patient returns from payment page (`/api/escrow/callback`) |
 
-Authentication uses **OAuth 2.0 client credentials** with a **SHA-512 HMAC** request signature computed from `clientId + amount + txnRef + terminalId`.
+**Hash formula (SHA-512):** The payment page redirect requires a request signature:
+
+```text
+SHA512( txnRef + productId + payItemId + amountKobo + redirectUrl + macKey )
+```
+
+All values are concatenated with no separator. Amount must be in kobo (₦ × 100). This is the official Interswitch DocBase formula (`request-hash-calculation`).
+
+**Response code `"00"`** = successful payment. Any other code means the payment did not go through and the escrow stays pending.
 
 **Coming next — Interswitch Identity Verification:** We will integrate Interswitch's identity verification API to KYC patients and hospitals at onboarding, ensuring that the person pre-authorising payment is who they claim to be. This is especially important for HMO-linked accounts where a patient's insurer covers the escrow amount.
 
@@ -239,41 +309,44 @@ Handles signup, login, session management, and password reset. Custom fields (`r
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16.2 (App Router, Partial Prerender, Cache Components) |
-| Runtime | Bun 1.x |
-| Auth | Better Auth 1.5.6 with Drizzle adapter |
-| Database | Neon PostgreSQL (serverless HTTP) |
-| ORM | Drizzle ORM 0.45 |
-| Styling | Tailwind CSS v4 |
-| Voice AI | VAPI (GPT-4o, Deepgram nova-3-medical, ElevenLabs) |
-| AI Routing | Vercel AI SDK + @ai-sdk/google-vertex (Gemini 2.5 Pro) |
-| Payments | Interswitch QuickTeller sandbox (escrow lifecycle) |
-| Real-time | Server-Sent Events (triage alerts + patient updates) |
+| Layer      | Technology                                                     |
+| ------------| ----------------------------------------------------------------|
+| Framework  | Next.js 16.2 (App Router, Partial Prerender, Cache Components) |
+| Runtime    | Bun 1.x                                                        |
+| Auth       | Better Auth 1.5.6 with Drizzle adapter                         |
+| Database   | Neon PostgreSQL (serverless HTTP)                              |
+| ORM        | Drizzle ORM 0.45                                               |
+| Styling    | Tailwind CSS v4                                                |
+| Voice AI   | VAPI (GPT-4o, Deepgram nova-3-medical, ElevenLabs)             |
+| AI Routing | Vercel AI SDK + @ai-sdk/google-vertex (Gemini 2.5 Pro)         |
+| Payments   | Interswitch QuickTeller sandbox (escrow lifecycle)             |
+| Real-time  | Server-Sent Events (triage alerts + patient updates)           |
 
 ---
 
 ## Features
 
-- [x] Hospital registration with admin approval workflow
+- [x] Hospital auto-approval on signup — profile setup modal opens on first login
 - [x] Hospital profile: description, specialties, bed count, ICU count, emergency phone
-- [x] Hospital resource inventory: name, category, available count, price in ₦
+- [x] Hospital resource inventory: name, category, available count, price in ₦ (feeds AI routing)
+- [x] Hospital sidebar dashboard — Overview, Triage, Patients, Resources, Profile tabs
 - [x] Patient registration with EMR-based hospital matching
+- [x] Patient payment source linking: card, bank account, or HMO/insurer
 - [x] Voice triage agent — Aura (VAPI, browser WebRTC + phone `+17622204588`)
 - [x] Text-based triage fallback
 - [x] Severity assessment (critical / high / medium / low)
 - [x] AI clinical differentials and clinical summary per triage case (Gemini 2.5 Pro)
 - [x] Hospital resource availability factored into AI routing
-- [x] Real-time triage alerts to hospital dashboard (SSE)
+- [x] Real-time triage alerts to hospital dashboard (SSE, poll every 5s)
 - [x] Real-time triage status updates to patient dashboard (SSE)
 - [x] Real-time patient-approval event to hospital dashboard (SSE)
 - [x] Triage status lifecycle: pending → in_progress → resolved
-- [x] Escrow pre-authorisation per triage (Interswitch / mock)
-- [x] Escrow release from hospital triage card
+- [x] Escrow pre-authorisation per triage (Interswitch QuickTeller sandbox)
+- [x] Correct SHA-512 hash formula per Interswitch DocBase
+- [x] Escrow release from hospital triage card (disburses to hospital bank account)
 - [x] EMR import (fake FHIR dataset, 15 patients)
 - [x] Linked patients panel (AuraHealth + EMR tabs)
-- [x] Admin dashboard for hospital approvals
+- [x] Admin dashboard for hospital approvals (manual override available)
 - [x] Password visibility toggle on all auth forms
 - [x] Responsive UI — mobile bottom nav on patient + hospital dashboards
 
@@ -326,6 +399,15 @@ NEXT_PUBLIC_VAPI_PHONE_NUMBER=+17622204588
 GOOGLE_VERTEX_PROJECT=your_gcp_project_id
 GOOGLE_VERTEX_LOCATION=us-central1
 GOOGLE_VERTEX_CREDENTIALS={"type":"service_account",...}
+
+# Interswitch QuickTeller Business (Sandbox)
+NEXT_PUBLIC_INTERSWITCH_ENV=sandbox
+INTERSWITCH_CLIENT_ID=your_client_id
+INTERSWITCH_SECRET=your_secret_key
+INTERSWITCH_MERCHANT_CODE=your_merchant_code
+INTERSWITCH_PAY_ITEM_ID=your_pay_item_id
+INTERSWITCH_PRODUCT_ID=your_numeric_product_id
+INTERSWITCH_MAC_KEY=your_mac_key
 ```
 
 ### Installation

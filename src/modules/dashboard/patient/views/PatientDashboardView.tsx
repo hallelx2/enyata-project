@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { DashboardNav } from "../../components/DashboardNav";
 import { VoiceTriage } from "@/components/VoiceTriage";
+import { initializeEscrow } from "@/modules/escrow/actions";
 import { requestHospitalLink } from "@/modules/patient/actions";
 import { createTriageRequest, linkEscrowToTriage } from "@/modules/triage/actions";
-import { initializeMockEscrow } from "@/modules/escrow/actions";
+import { DashboardNav } from "../../components/DashboardNav";
 
 interface HospitalLink {
   linkId: string;
@@ -120,6 +120,7 @@ export function PatientDashboardView({
 }: PatientDashboardViewProps) {
   const [selectedHospital, setSelectedHospital] = useState("");
   const [linkMsg, setLinkMsg] = useState("");
+  const [escrowBanner, setEscrowBanner] = useState<{ type: "success" | "error"; ref: string } | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -136,6 +137,22 @@ export function PatientDashboardView({
 
   // Escrow pre-auth state
   const [escrowingId, setEscrowingId] = useState<string | null>(null);
+
+  // Read Interswitch callback result from URL query params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("escrow");
+    const ref = params.get("ref") ?? "";
+    if (status === "held") {
+      setEscrowBanner({ type: "success", ref });
+      // Clean URL without reload
+      window.history.replaceState({}, "", window.location.pathname);
+      router.refresh();
+    } else if (status === "failed" || status === "error") {
+      setEscrowBanner({ type: "error", ref });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [router]);
 
   // Patient SSE stream for real-time updates
   useEffect(() => {
@@ -159,7 +176,7 @@ export function PatientDashboardView({
       } else if (data.type === "triage-updated" && data.triages) {
         setTriages((prev) =>
           prev.map((t) => {
-            const updated = data.triages!.find((u) => u.id === t.id);
+            const updated = data.triages?.find((u) => u.id === t.id);
             return updated ? { ...t, ...updated } : t;
           }),
         );
@@ -225,19 +242,20 @@ export function PatientDashboardView({
   const handlePreAuthorize = (triageId: string, hospitalId: string) => {
     setEscrowingId(triageId);
     startTransition(async () => {
-      const escrow = await initializeMockEscrow({
+      const escrow = await initializeEscrow({
         patientId,
+        patientEmail,
+        patientName,
         hospitalId,
         amountNaira: 5000,
         description: "Triage care pre-authorization",
+        baseUrl: window.location.origin,
       });
-      if (escrow.success && escrow.txnRef) {
+      if (escrow.success && escrow.txnRef && escrow.paymentUrl) {
+        // Link triage → escrow before redirect so the callback can verify
         await linkEscrowToTriage(triageId, escrow.txnRef);
-        setTriages((prev) =>
-          prev.map((t) =>
-            t.id === triageId ? { ...t, escrowRef: escrow.txnRef } : t,
-          ),
-        );
+        // Redirect patient to Interswitch hosted payment page
+        window.location.href = escrow.paymentUrl;
       }
       setEscrowingId(null);
     });
@@ -256,6 +274,31 @@ export function PatientDashboardView({
         user={{ name: patientName, email: patientEmail, role: "patient" }}
       />
       <main className="max-w-7xl mx-auto px-6 py-12">
+        {escrowBanner && (
+          <div
+            className={`mb-6 flex items-center justify-between gap-3 px-5 py-4 rounded-2xl text-sm font-semibold ${
+              escrowBanner.type === "success"
+                ? "bg-green-50 text-green-800 border border-green-200"
+                : "bg-red-50 text-red-800 border border-red-200"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-base">
+                {escrowBanner.type === "success" ? "check_circle" : "error"}
+              </span>
+              {escrowBanner.type === "success"
+                ? `Payment confirmed — ₦5,000 held in escrow. Ref: ${escrowBanner.ref}`
+                : "Payment was not completed. You can try again from your triage history."}
+            </div>
+            <button
+              type="button"
+              onClick={() => setEscrowBanner(null)}
+              className="material-symbols-outlined text-base opacity-60 hover:opacity-100"
+            >
+              close
+            </button>
+          </div>
+        )}
         <header className="mb-12">
           <h1 className="text-4xl font-extrabold text-on-surface tracking-tight mb-2 font-headline">
             Welcome back, {patientName.split(" ")[0]}
