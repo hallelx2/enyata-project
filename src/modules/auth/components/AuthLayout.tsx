@@ -6,10 +6,10 @@ import type { ReactNode } from "react";
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="bg-surface font-body text-on-surface min-h-screen flex items-center justify-center p-4 md:p-8">
-      <main className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-2 min-h-[650px] lg:h-[calc(100vh-4rem)] lg:max-h-[850px] bg-surface-container-lowest rounded-2xl overflow-hidden shadow-xl border border-outline-variant/20">
+    <div className="bg-surface font-body text-on-surface min-h-screen flex items-start justify-center p-4 md:p-8">
+      <main className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-2 min-h-[650px] lg:min-h-[calc(100vh-4rem)] lg:max-h-none bg-surface-container-lowest rounded-2xl shadow-xl border border-outline-variant/20 overflow-visible">
         {/* Left Side: Immersive Visual */}
-        <section className="hidden lg:relative lg:flex flex-col justify-end p-12 aura-gradient-bg overflow-hidden">
+        <section className="hidden lg:relative lg:flex flex-col justify-end p-12 aura-gradient-bg overflow-hidden rounded-l-2xl lg:sticky lg:top-8 lg:self-start lg:h-[calc(100vh-4rem)]">
           {/* Decorative Aura Bleed */}
           <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-secondary-fixed/20 rounded-full blur-[120px]"></div>
           <Image
@@ -59,8 +59,8 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </section>
 
         {/* Right Side: Interaction Canvas */}
-        <section className="flex flex-col p-8 md:p-16 lg:p-20 justify-center bg-surface relative z-10">
-          <div className="max-w-md w-full mx-auto space-y-10">{children}</div>
+        <section className="flex flex-col p-8 md:p-16 lg:p-20 justify-center bg-surface relative z-10 rounded-r-2xl overflow-y-auto">
+          <div className="max-w-md w-full mx-auto space-y-10 py-8">{children}</div>
         </section>
       </main>
 
