@@ -10,12 +10,17 @@
 
 | API | Endpoint | Purpose |
 |-----|----------|---------|
-| OAuth 2.0 token | `POST /passport/oauth/token` | Authenticate every server-side request to Interswitch |
-| Hosted payment page | `GET /collections/w/pay` | Patient pays escrow — card, bank transfer, or USSD |
-| Transaction verification | `GET /collections/api/v1/gettransaction.json` | Server-side confirmation before funds are marked as held |
+| OAuth 2.0 | `POST /passport/oauth/token` | Authenticate server-side requests (Basic auth, client_credentials) |
+| Pay Bill API | `POST /collections/api/v1/pay-bill` | Create server-side payment link — returns a `paymentUrl` to redirect to |
+| Hosted payment page | `newwebpay.qa.interswitchng.com/collections/w/pay` | Patient pays escrow — card, bank transfer, USSD, or wallet |
+| Transaction verification | `GET /collections/api/v1/gettransaction.json` | Confirm payment succeeded before marking escrow as held |
+| Payouts | `POST /api/v1/payouts` | Disburse held escrow funds to hospital bank account on release |
 | *(Next)* Identity verification | Interswitch KYC API | Verify patient and hospital identity at onboarding |
 
-All three live APIs run against the **QuickTeller Business Sandbox** (`sandbox.interswitchng.com`). The integration is in [`src/lib/interswitch.ts`](src/lib/interswitch.ts) and [`src/app/api/escrow/callback/route.ts`](src/app/api/escrow/callback/route.ts).
+**Sandbox:** `qa.interswitchng.com` (API) + `newwebpay.qa.interswitchng.com` (payment page)
+**Production:** `webpay.interswitchng.com` (API) + `newwebpay.interswitchng.com` (payment page)
+
+The integration code is in [`src/lib/interswitch.ts`](src/lib/interswitch.ts) and [`src/app/api/escrow/callback/route.ts`](src/app/api/escrow/callback/route.ts).
 
 ---
 
@@ -224,7 +229,7 @@ Patient Browser
                     ├── getHospitalResources()      → DB
                     ├── generateText(gemini-2.5-pro)→ Vertex AI
                     │     returns: routingMessage + differentials + clinicalSummary
-                    └── initializeMockEscrow()      → DB / Interswitch
+                    └── initializeEscrow()          → Interswitch Pay Bill API
 
 Hospital Browser
   └── TriageInbox.tsx (EventSource)
@@ -241,27 +246,34 @@ Patient Browser
 
 ## APIs Used
 
-### Interswitch QuickTeller Business — Payments & Escrow
+### Interswitch QuickTeller Business — Payments, Escrow & Payouts
 
-> **Environment:** Sandbox (`sandbox.interswitchng.com`)
+> **Sandbox:** `qa.interswitchng.com` (API) + `newwebpay.qa.interswitchng.com` (payment page)
 
-AuraHealth uses the Interswitch QuickTeller Business API for all payment operations. The integration uses three distinct API surfaces:
+AuraHealth uses four Interswitch APIs to handle the full payment lifecycle:
 
 | Step | API | When |
 |------|-----|------|
-| Get bearer token | `POST /passport/oauth/token` (Basic auth, `client_credentials`) | Before every payment or query |
-| Redirect to payment page | `GET /collections/w/pay?merchant_code=...&hash=...` | Patient pre-authorises escrow during triage |
-| Verify transaction | `GET /collections/api/v1/gettransaction.json` (Bearer token) | After patient returns from payment page (`/api/escrow/callback`) |
+| Authenticate | `POST /passport/oauth/token` (Basic auth, `client_credentials`) | Before every server-side API call |
+| Create payment link | `POST /collections/api/v1/pay-bill` | Patient clicks pre-authorise — we get a `paymentUrl` back |
+| Verify transaction | `GET /collections/api/v1/gettransaction.json` | After patient returns from payment page (`/api/escrow/callback`) |
+| Payout to hospital | `POST /api/v1/payouts` (BANK_TRANSFER) | Hospital clicks Release Escrow — funds transfer to their bank |
 
-**Hash formula (SHA-512):** The payment page redirect requires a request signature:
+**Payment flow:**
 
-```text
-SHA512( txnRef + productId + payItemId + amountKobo + redirectUrl + macKey )
-```
+1. Our server calls the **Pay Bill API** with amount, merchant code, and redirect URL
+2. Interswitch returns a `paymentUrl` — we redirect the patient there
+3. Patient pays on Interswitch's hosted page (card, bank transfer, USSD, wallet)
+4. Interswitch redirects patient back to `/api/escrow/callback?txnRef=AUR...`
+5. Our callback verifies with `gettransaction.json` — response code `"00"` = success
+6. Escrow marked as **held** in our database
 
-All values are concatenated with no separator. Amount must be in kobo (₦ × 100). This is the official Interswitch DocBase formula (`request-hash-calculation`).
+**Payout flow (escrow release):**
 
-**Response code `"00"`** = successful payment. Any other code means the payment did not go through and the escrow stays pending.
+1. Hospital clicks Release Escrow after treatment
+2. Our server calls the **Payouts API** with hospital's bank account and amount
+3. Interswitch transfers from our QuickTeller wallet to the hospital's bank account
+4. Escrow marked as **released**
 
 **Coming next — Interswitch Identity Verification:** We will integrate Interswitch's identity verification API to KYC patients and hospitals at onboarding, ensuring that the person pre-authorising payment is who they claim to be. This is especially important for HMO-linked accounts where a patient's insurer covers the escrow amount.
 
@@ -382,9 +394,9 @@ Handles signup, login, session management, and password reset. Custom fields (`r
 - [x] Real-time triage status updates to patient dashboard (SSE)
 - [x] Real-time patient-approval event to hospital dashboard (SSE)
 - [x] Triage status lifecycle: pending → in_progress → resolved
-- [x] Escrow pre-authorisation per triage (Interswitch QuickTeller sandbox)
-- [x] Correct SHA-512 hash formula per Interswitch DocBase
-- [x] Escrow release from hospital triage card (disburses to hospital bank account)
+- [x] Escrow pre-authorisation via Interswitch Pay Bill API (sandbox)
+- [x] Escrow release with Interswitch Payouts API (wallet to hospital bank account)
+- [x] Transaction verification via Interswitch gettransaction API
 - [x] EMR import (fake FHIR dataset, 15 patients)
 - [x] Linked patients panel (AuraHealth + EMR tabs)
 - [x] Admin dashboard for hospital approvals (manual override available)
@@ -447,8 +459,9 @@ INTERSWITCH_CLIENT_ID=your_client_id
 INTERSWITCH_SECRET=your_secret_key
 INTERSWITCH_MERCHANT_CODE=your_merchant_code
 INTERSWITCH_PAY_ITEM_ID=your_pay_item_id
-INTERSWITCH_PRODUCT_ID=your_numeric_product_id
-INTERSWITCH_MAC_KEY=your_mac_key
+# Wallet for payouts (from QuickTeller Business → Wallets)
+INTERSWITCH_WALLET_ID=your_wallet_id
+INTERSWITCH_WALLET_PIN=your_wallet_pin
 ```
 
 ### Installation

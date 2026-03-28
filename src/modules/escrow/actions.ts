@@ -6,9 +6,10 @@ import { db } from "@/lib/db";
 import { escrowTransaction } from "@/lib/db/schema";
 import {
   buildPaymentRedirectUrl,
+  createPayBillLink,
   generateTxnRef,
-  queryTransactionStatus,
   isPaymentSuccessful,
+  queryTransactionStatus,
 } from "@/lib/interswitch";
 
 // ─── Initialize escrow ────────────────────────────────────────────────────────
@@ -44,6 +45,19 @@ export async function initializeEscrow(params: {
       updatedAt: now,
     });
 
+    // Try Pay Bill API first (server-side payment link creation)
+    const payBill = await createPayBillLink({
+      txnRef,
+      amountKobo: params.amountNaira * 100,
+      customerEmail: params.patientEmail,
+      redirectUrl,
+    });
+
+    if (payBill?.paymentUrl) {
+      return { success: true, txnRef, paymentUrl: payBill.paymentUrl };
+    }
+
+    // Fallback: build direct redirect URL (Web Redirect — Path B)
     const paymentUrl = buildPaymentRedirectUrl({
       txnRef,
       amountNaira: params.amountNaira,
