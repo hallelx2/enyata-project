@@ -173,47 +173,47 @@ sequenceDiagram
     participant P as Patient
     participant V as VAPI
     participant W as Webhook
-    participant G as Gemini 2.5 Pro
+    participant G as Gemini
     participant DB as Database
     participant I as Interswitch
     participant H as Hospital
 
     P->>V: Start voice call
-    V->>P: Hi I am Aura - describe your symptoms
+    V->>P: Hi, I am Aura. Describe your symptoms
     P->>V: Describes symptoms
     V->>W: Tool call routeToHospital
     W->>DB: Save triage request
     W->>DB: Fetch hospital resources and prices
-    W->>G: Generate routing message and clinical assessment
-    G-->>W: Routing message plus differentials plus clinical summary
-    W->>DB: Save clinical assessment to triage record
+    W->>G: Generate routing and clinical assessment
+    G-->>W: Routing message, differentials, summary
+    W->>DB: Save clinical assessment to triage
     W-->>V: Return routing message text
     V->>P: Aura reads routing message aloud
-    V->>P: Shall I pre-authorise NGN 5000 for your care?
+    V->>P: Shall I pre-authorise NGN 5000?
     P->>V: Yes
     V->>W: Tool call createEscrow
-    W->>I: POST passport/oauth/token for bearer token
+    W->>I: POST oauth token request
     I-->>W: Bearer token
-    W->>I: Redirect to hosted payment page SHA-512 signed
-    P->>I: Patient pays on Interswitch payment page
-    I-->>W: Redirect to callback with transaction ref
-    W->>I: GET gettransaction.json to verify payment
-    I-->>W: ResponseCode 00 - payment confirmed
+    W->>I: Redirect to hosted payment page
+    P->>I: Patient pays on Interswitch page
+    I-->>W: Redirect callback with txn ref
+    W->>I: GET transaction status to verify
+    I-->>W: ResponseCode 00 confirmed
     W->>DB: Mark escrow as held
-    W-->>V: Return confirmation with reference number
-    V->>P: Aura reads payment confirmation aloud
-    DB-->>H: SSE stream detects new triage every 5s
-    H->>H: Display triage card with AI differentials and clinical summary
-    Note over H: Doctor reviews assessment before patient arrives
-    H->>DB: Mark triage as in progress
-    DB-->>P: SSE stream detects status update
-    Note over P: Patient dashboard shows In Progress
-    Note over H: Doctor treats patient - no payment queues
+    W-->>V: Confirmation with reference number
+    V->>P: Aura reads payment confirmation
+    DB-->>H: SSE stream detects new triage
+    H->>H: Display triage with AI differentials
+    Note over H: Doctor reviews before patient arrives
+    H->>DB: Mark triage as in_progress
+    DB-->>P: SSE detects status update
+    Note over P: Dashboard shows In Progress
+    Note over H: Doctor treats patient
     H->>DB: Click Release Escrow
-    DB->>I: Disburse held funds to hospital bank account
+    DB->>I: Disburse funds to hospital bank
     H->>DB: Mark triage as resolved
-    DB-->>P: SSE stream detects resolved
-    Note over P: Patient dashboard shows Resolved
+    DB-->>P: SSE detects resolved
+    Note over P: Dashboard shows Resolved
 ```
 
 ---
