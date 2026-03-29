@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { escrowTransaction } from "@/lib/db/schema";
 
@@ -14,7 +15,12 @@ import { escrowTransaction } from "@/lib/db/schema";
  * Interswitch POSTs a JSON payload when a transaction status changes.
  * We use this as a backup verification — even if the patient closes
  * their browser before the redirect, this webhook will still fire.
+ *
+ * The webhook secret (from Settings → Webhooks → Notification Customization)
+ * is used to verify the request signature via HMAC-SHA-512.
  */
+
+const WEBHOOK_SECRET = process.env.INTERSWITCH_WEBHOOK_SECRET ?? "";
 
 interface InterswitchWebhookPayload {
   transactionReference?: string;
@@ -25,9 +31,29 @@ interface InterswitchWebhookPayload {
   channel?: string;
 }
 
+function verifySignature(rawBody: string, signature: string | null): boolean {
+  if (!WEBHOOK_SECRET || !signature) return !WEBHOOK_SECRET;
+  const expected = crypto
+    .createHmac("sha512", WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest("hex");
+  return crypto.timingSafeEqual(
+    Buffer.from(expected, "hex"),
+    Buffer.from(signature, "hex"),
+  );
+}
+
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as InterswitchWebhookPayload;
+    const rawBody = await request.text();
+
+    // Verify webhook signature if secret is configured
+    const signature = request.headers.get("x-interswitch-signature");
+    if (WEBHOOK_SECRET && !verifySignature(rawBody, signature)) {
+      return NextResponse.json({ received: false, error: "Invalid signature" }, { status: 401 });
+    }
+
+    const body = JSON.parse(rawBody) as InterswitchWebhookPayload;
 
     const txnRef = body.transactionReference;
     if (!txnRef) {
