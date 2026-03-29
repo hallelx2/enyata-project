@@ -250,30 +250,131 @@ Patient Browser
 
 > **Sandbox:** `qa.interswitchng.com` (API) + `newwebpay.qa.interswitchng.com` (payment page)
 
-AuraHealth uses four Interswitch APIs to handle the full payment lifecycle:
+AuraHealth uses **five Interswitch API surfaces** across the full payment lifecycle. Every API call below runs in production code — not mocked.
 
-| Step | API | When |
-|------|-----|------|
-| Authenticate | `POST /passport/oauth/token` (Basic auth, `client_credentials`) | Before every server-side API call |
-| Create payment link | `POST /collections/api/v1/pay-bill` | Patient clicks pre-authorise — we get a `paymentUrl` back |
-| Verify transaction | `GET /collections/api/v1/gettransaction.json` | After patient returns from payment page (`/api/escrow/callback`) |
-| Payout to hospital | `POST /api/v1/payouts` (BANK_TRANSFER) | Hospital clicks Release Escrow — funds transfer to their bank |
+---
 
-**Payment flow:**
+#### API 1 — OAuth 2.0 Authentication
 
-1. Our server calls the **Pay Bill API** with amount, merchant code, and redirect URL
-2. Interswitch returns a `paymentUrl` — we redirect the patient there
-3. Patient pays on Interswitch's hosted page (card, bank transfer, USSD, wallet)
-4. Interswitch redirects patient back to `/api/escrow/callback?txnRef=AUR...`
-5. Our callback verifies with `gettransaction.json` — response code `"00"` = success
-6. Escrow marked as **held** in our database
+Every server-side Interswitch call starts by getting a Bearer token.
 
-**Payout flow (escrow release):**
+| Detail | Value |
+|--------|-------|
+| Endpoint | `POST /passport/oauth/token?grant_type=client_credentials` |
+| Auth header | `Basic base64(CLIENT_ID:SECRET)` |
+| Returns | `{ access_token, token_type, expires_in }` |
+| Code | [`src/lib/interswitch.ts`](src/lib/interswitch.ts) — `getAccessToken()` |
 
-1. Hospital clicks Release Escrow after treatment
-2. Our server calls the **Payouts API** with hospital's bank account and amount
-3. Interswitch transfers from our QuickTeller wallet to the hospital's bank account
-4. Escrow marked as **released**
+```ts
+// Simplified — actual code in src/lib/interswitch.ts
+const res = await fetch(`${apiBase}/passport/oauth/token?grant_type=client_credentials`, {
+  method: "POST",
+  headers: {
+    Authorization: `Basic ${Buffer.from(`${clientId}:${secret}`).toString("base64")}`,
+    "Content-Type": "application/x-www-form-urlencoded",
+  },
+  body: new URLSearchParams({ grant_type: "client_credentials" }),
+});
+```
+
+---
+
+#### API 2 — Pay Bill (Server-Side Payment Link)
+
+When a patient clicks **"Pre-authorize ₦5,000 care"** on their dashboard, our server creates a payment link via the Pay Bill API. Interswitch returns a `paymentUrl` and we redirect the patient there.
+
+| Detail | Value |
+|--------|-------|
+| Endpoint | `POST /collections/api/v1/pay-bill` |
+| Body | `{ merchantCode, payableCode, amount, redirectUrl, customerId, currencyCode, customerEmail }` |
+| Returns | `{ paymentUrl, reference }` |
+| Code | [`src/lib/interswitch.ts`](src/lib/interswitch.ts) — `createPayBillLink()` |
+| Called from | [`src/modules/escrow/actions.ts`](src/modules/escrow/actions.ts) — `initializeEscrow()` |
+| Patient UI | [`src/modules/dashboard/patient/views/PatientDashboardView.tsx`](src/modules/dashboard/patient/views/PatientDashboardView.tsx) — `handlePreAuthorize()` |
+
+The patient is redirected to the Interswitch hosted payment page where they can pay via card, bank transfer, USSD, or wallet. After payment, Interswitch redirects back to our callback URL.
+
+---
+
+#### API 3 — Transaction Verification
+
+After Interswitch redirects the patient back to `/api/escrow/callback`, our server verifies the payment server-side before marking the escrow as held.
+
+| Detail | Value |
+|--------|-------|
+| Endpoint | `GET /collections/api/v1/gettransaction.json?merchantcode=...&transactionreference=...&amount=...` |
+| Success | `ResponseCode === "00"` |
+| Code | [`src/lib/interswitch.ts`](src/lib/interswitch.ts) — `queryTransactionStatus()` |
+| Called from | [`src/modules/escrow/actions.ts`](src/modules/escrow/actions.ts) — `verifyAndHoldEscrow()` |
+| Route | [`src/app/api/escrow/callback/route.ts`](src/app/api/escrow/callback/route.ts) |
+
+We always verify **two things**: ResponseCode is `"00"` AND the Amount matches what we originally charged. If either fails, we do not mark the escrow as held.
+
+---
+
+#### API 4 — Webhook Notifications
+
+Interswitch POSTs transaction status changes to our webhook endpoint. This works even if the patient closes their browser before the redirect.
+
+| Detail | Value |
+|--------|-------|
+| Our endpoint | `POST /api/interswitch/webhook` |
+| Signature verification | HMAC-SHA-512 using webhook secret from dashboard |
+| Signature header | `x-interswitch-signature` |
+| Code | [`src/app/api/interswitch/webhook/route.ts`](src/app/api/interswitch/webhook/route.ts) |
+| Dashboard config | Settings → Webhooks → enable Transactions + Payout toggles |
+
+---
+
+#### API 5 — Payouts (Escrow Disbursement)
+
+When the hospital clicks **"Release Escrow"** after treatment, our server calls the Payouts API to transfer funds from our QuickTeller wallet to the hospital's bank account.
+
+| Detail | Value |
+|--------|-------|
+| Endpoint | `POST /api/v1/payouts` |
+| Channel | `BANK_TRANSFER` |
+| Body | `{ transactionReference, amount, walletDetails: { walletId, pin }, recipient: { recipientAccount, recipientBank }, singleCall: true }` |
+| Code | [`src/lib/interswitch.ts`](src/lib/interswitch.ts) — `createPayout()` |
+| Called from | [`src/modules/escrow/actions.ts`](src/modules/escrow/actions.ts) — `releaseEscrow()` |
+
+---
+
+#### End-to-End Payment Flow (How Money Moves)
+
+```text
+Patient clicks "Pre-authorize ₦5,000"
+  |
+  v
+Our server: POST /collections/api/v1/pay-bill
+  |
+  v
+Interswitch returns paymentUrl --> Patient redirected to payment page
+  |
+  v
+Patient pays (card / bank transfer / USSD)
+  |
+  v
+Interswitch redirects to /api/escrow/callback?txnRef=AUR...
+  |
+  v
+Our server: GET /collections/api/v1/gettransaction.json (verify ResponseCode "00")
+  |
+  v
+Escrow marked "held" in database --- money sits in our QuickTeller wallet
+  |
+  v
+Hospital treats patient (zero payment friction)
+  |
+  v
+Hospital clicks "Release Escrow"
+  |
+  v
+Our server: POST /api/v1/payouts (BANK_TRANSFER to hospital account)
+  |
+  v
+Escrow marked "released" --- hospital bank account credited
+```
 
 **Coming next — Interswitch Identity Verification:** We will integrate Interswitch's identity verification API to KYC patients and hospitals at onboarding, ensuring that the person pre-authorising payment is who they claim to be. This is especially important for HMO-linked accounts where a patient's insurer covers the escrow amount.
 
