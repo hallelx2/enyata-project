@@ -130,7 +130,11 @@ export function PatientDashboardView({
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [selectedHospital, setSelectedHospital] = useState("");
   const [linkMsg, setLinkMsg] = useState("");
-  const [escrowBanner, setEscrowBanner] = useState<{ type: "success" | "error"; ref: string } | null>(null);
+  const [escrowBanner, setEscrowBanner] = useState<
+    | { type: "success"; ref: string }
+    | { type: "error"; message: string; ref?: string }
+    | null
+  >(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -150,7 +154,11 @@ export function PatientDashboardView({
       window.history.replaceState({}, "", window.location.pathname);
       router.refresh();
     } else if (status === "failed" || status === "error") {
-      setEscrowBanner({ type: "error", ref });
+      setEscrowBanner({
+        type: "error",
+        ref,
+        message: "Payment was not completed. Please try again.",
+      });
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [router]);
@@ -219,6 +227,14 @@ export function PatientDashboardView({
       if (escrow.success && escrow.txnRef && escrow.paymentUrl) {
         await linkEscrowToTriage(triageId, escrow.txnRef);
         window.location.href = escrow.paymentUrl;
+      } else {
+        setEscrowBanner({
+          type: "error",
+          ref: escrow.txnRef ?? undefined,
+          message:
+            escrow.message ??
+            "Could not initialize payment checkout. Please try again shortly.",
+        });
       }
       setEscrowingId(null);
     });
@@ -454,7 +470,9 @@ export function PatientDashboardView({
             <div className={`mb-6 flex items-center justify-between gap-3 px-5 py-4 rounded-2xl text-sm font-semibold ${escrowBanner.type === "success" ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}>
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-base">{escrowBanner.type === "success" ? "check_circle" : "error"}</span>
-                {escrowBanner.type === "success" ? `Payment confirmed — ₦5,000 held in escrow. Ref: ${escrowBanner.ref}` : "Payment was not completed. You can try again from your triage history."}
+                {escrowBanner.type === "success"
+                  ? `Payment confirmed — ₦5,000 held in escrow. Ref: ${escrowBanner.ref}`
+                  : `${escrowBanner.message}${escrowBanner.ref ? ` Ref: ${escrowBanner.ref}` : ""}`}
               </div>
               <button type="button" onClick={() => setEscrowBanner(null)} className="material-symbols-outlined text-base opacity-60 hover:opacity-100">close</button>
             </div>

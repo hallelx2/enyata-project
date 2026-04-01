@@ -45,19 +45,10 @@ export async function initializeEscrow(params: {
       updatedAt: now,
     });
 
-    // Try Pay Bill API first (server-side payment link creation)
-    const payBill = await createPayBillLink({
-      txnRef,
-      amountKobo: params.amountNaira * 100,
-      customerEmail: params.patientEmail,
-      redirectUrl,
-    });
-
-    if (payBill?.paymentUrl) {
-      return { success: true, txnRef, paymentUrl: payBill.paymentUrl };
-    }
-
-    // Fallback: build direct redirect URL (Web Redirect — Path B)
+    // Web Redirect (Path B) — amount encoded directly in the URL so the sandbox
+    // pay item's configured fixed price cannot override it, and mode=TEST is
+    // appended automatically in sandbox so test cards are accepted.
+    // We still keep createPayBillLink imported for production use when needed.
     const paymentUrl = buildPaymentRedirectUrl({
       txnRef,
       amountNaira: params.amountNaira,
@@ -70,7 +61,12 @@ export async function initializeEscrow(params: {
     return { success: true, txnRef, paymentUrl };
   } catch (error) {
     console.error("Escrow init failed:", error);
-    return { success: false, txnRef: null, paymentUrl: null };
+    return {
+      success: false,
+      txnRef: null,
+      paymentUrl: null,
+      message: "Failed to initialize escrow payment.",
+    };
   }
 }
 

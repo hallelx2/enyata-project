@@ -119,11 +119,25 @@ export async function createPayBillLink(params: {
   redirectUrl: string;
 }): Promise<PayBillResponse | null> {
   try {
+    const token = await getAccessToken();
+    if (!token) {
+      console.error("Interswitch pay-bill failed: could not obtain OAuth access token");
+      return null;
+    }
+
+    if (!ISW_CONFIG.merchantCode || !ISW_CONFIG.payItemId) {
+      console.error("Interswitch pay-bill failed: missing merchantCode or payItemId");
+      return null;
+    }
+
     const res = await fetch(
       `${ISW_CONFIG.apiBase}/collections/api/v1/pay-bill`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           merchantCode: ISW_CONFIG.merchantCode,
           payableCode: ISW_CONFIG.payItemId,
@@ -135,8 +149,19 @@ export async function createPayBillLink(params: {
         }),
       },
     );
-    if (!res.ok) return null;
-    return (await res.json()) as PayBillResponse;
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("Interswitch pay-bill failed:", res.status, errText);
+      return null;
+    }
+
+    const json = (await res.json()) as PayBillResponse;
+    if (!json?.paymentUrl) {
+      console.error("Interswitch pay-bill failed: response missing paymentUrl", json);
+      return null;
+    }
+
+    return json;
   } catch {
     return null;
   }
