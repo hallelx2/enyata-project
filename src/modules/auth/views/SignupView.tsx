@@ -125,25 +125,28 @@ export function SignupView() {
           />
         </div>
 
-        {role === "hospital" && (
-          <div className="space-y-2">
-            <label
-              htmlFor="phone"
-              className="block text-sm font-semibold text-on-surface-variant ml-1"
-            >
-              Phone Number
-            </label>
-            <input
-              type="tel"
-              id="phone"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="+234..."
-              className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all font-body"
-              required
-            />
-          </div>
-        )}
+        <div className="space-y-2">
+          <label
+            htmlFor="phone"
+            className="block text-sm font-semibold text-on-surface-variant ml-1"
+          >
+            Phone Number{role === "patient" && <span className="text-primary ml-1">*</span>}
+          </label>
+          <input
+            type="tel"
+            id="phone"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            placeholder="+2348012345678"
+            className="w-full bg-surface-container-high border-none rounded-xl py-4 px-6 focus:ring-2 focus:ring-primary-fixed text-on-surface placeholder:text-outline-variant/60 transition-all font-body"
+            required={role === "patient"}
+          />
+          {role === "patient" && (
+            <p className="text-xs text-on-surface-variant/70 ml-1">
+              Required for Aura voice identification when you call in
+            </p>
+          )}
+        </div>
 
         <div className="space-y-2">
           <label

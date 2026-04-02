@@ -55,7 +55,7 @@ export async function POST(request: Request) {
           JSON.stringify({
             registered: false,
             message:
-              "I couldn't find an AuraHealth account with those details. Would you like me to create one for you right now?",
+              "I couldn't find an AuraHealth account linked to that number. To get started, please visit aurahealth-five.vercel.app and create a free account — make sure to enter your phone number during sign-up so I can identify you next time you call. Once you're registered you can call back and I'll have everything ready for you.",
           }),
         ),
       );
