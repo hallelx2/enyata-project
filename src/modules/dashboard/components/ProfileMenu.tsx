@@ -83,29 +83,7 @@ export function ProfileMenu({ name, email, userRole: role }: ProfileMenuProps) {
             </div>
           </div>
 
-          {/* Menu Items */}
           <div className="py-2">
-            <button
-              type="button"
-              className="w-full flex items-center gap-3 px-5 py-3 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
-            >
-              <span className="material-symbols-outlined text-slate-400 text-lg">
-                account_circle
-              </span>
-              View Profile
-            </button>
-            <button
-              type="button"
-              className="w-full flex items-center gap-3 px-5 py-3 text-sm text-on-surface hover:bg-surface-container-low transition-colors text-left"
-            >
-              <span className="material-symbols-outlined text-slate-400 text-lg">
-                settings
-              </span>
-              Settings
-            </button>
-          </div>
-
-          <div className="border-t border-outline-variant/10 py-2">
             <button
               type="button"
               onClick={logout}
