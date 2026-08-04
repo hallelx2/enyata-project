@@ -12,6 +12,11 @@ export default async function HospitalDashboardPage() {
     redirect("/login");
   }
 
+  // Hospital must be approved by admin before accessing the dashboard
+  if (session.user.role === "hospital" && !session.user.isApproved) {
+    redirect("/pending");
+  }
+
   const hospitalId = session.user.id;
 
   const [emrRecords, linkedPatients, pendingRequests, triageRequests, hospitalProfileData, hospitalResources] = await Promise.all([

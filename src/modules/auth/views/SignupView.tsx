@@ -25,7 +25,7 @@ export function SignupView() {
       password,
       name,
       phoneNumber,
-      isApproved: true,
+      isApproved: role !== "hospital", // Hospitals require admin approval
       role,
       callbackURL: "/",
     });
@@ -34,10 +34,11 @@ export function SignupView() {
     if (error) {
       alert(error.message);
     } else {
+      // Hard navigation so the server component picks up the fresh session cookie
       if (role === "hospital") {
-        router.push("/dashboard/hospital");
+        window.location.href = "/pending"; // Hospitals must wait for admin approval
       } else {
-        router.push("/dashboard/patient");
+        window.location.href = "/dashboard/patient";
       }
     }
   };
