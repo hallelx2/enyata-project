@@ -140,7 +140,7 @@ export const patientHospitalLinkRelations = relations(
   }),
 );
 
-// Escrow transactions managed via Interswitch
+// Escrow transactions managed via Interswitch or Paystack
 export const escrowTransaction = pgTable("escrow_transaction", {
   id: text("id").primaryKey(),
   patientId: text("patient_id")
@@ -155,6 +155,9 @@ export const escrowTransaction = pgTable("escrow_transaction", {
   status: text("status").notNull().default("pending"),
   transactionRef: text("transaction_ref").notNull().unique(),
   interswitchRef: text("interswitch_ref"),
+  // 'interswitch' | 'paystack' | 'mock'
+  paymentProvider: text("payment_provider").notNull().default("interswitch"),
+  providerRef: text("provider_ref"),
   description: text("description"),
   createdAt: timestamp("created_at").notNull(),
   updatedAt: timestamp("updated_at").notNull(),

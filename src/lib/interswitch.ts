@@ -169,19 +169,32 @@ export async function createPayBillLink(params: {
 
 /**
  * Build a direct redirect URL for the Interswitch hosted payment page.
- * Fallback if Pay Bill API is unavailable — uses Web Redirect (Path B).
+ * Uses Web Redirect (Path B) with SHA-512 hash to enforce the exact amount.
  *
- * No hash required per current Interswitch QuickStart documentation.
+ * Hash = SHA512(txn_ref + product_id + pay_item_id + amount + site_redirect_url + MacKey)
+ * Without the hash, Interswitch uses the pay item's configured fixed price.
  */
-export function buildPaymentRedirectUrl(params: {
+export async function buildPaymentRedirectUrl(params: {
   txnRef: string;
   amountNaira: number;
   customerEmail: string;
   customerName: string;
   description: string;
   redirectUrl: string;
-}): string {
+}): Promise<string> {
   const amountKobo = String(params.amountNaira * 100);
+  const macKey = process.env.INTERSWITCH_MAC_KEY ?? "";
+
+  // Generate SHA-512 hash: txn_ref + product_id + pay_item_id + amount + site_redirect_url + MacKey
+  const hashInput = `${params.txnRef}${ISW_CONFIG.merchantCode}${ISW_CONFIG.payItemId}${amountKobo}${params.redirectUrl}${macKey}`;
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-512",
+    new TextEncoder().encode(hashInput),
+  );
+  const hash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
 
   const qs = new URLSearchParams({
     merchant_code: ISW_CONFIG.merchantCode,
@@ -193,7 +206,8 @@ export function buildPaymentRedirectUrl(params: {
     cust_email: params.customerEmail,
     cust_name: params.customerName,
     pay_item_name: params.description,
-    mode: IS_PRODUCTION ? "LIVE" : "TEST",
+    hash,
+    ...(IS_PRODUCTION ? {} : { mode: "TEST" }),
   });
 
   return `${ISW_CONFIG.paymentPageUrl}?${qs.toString()}`;

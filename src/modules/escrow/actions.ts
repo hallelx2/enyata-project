@@ -11,11 +11,15 @@ import {
   isPaymentSuccessful,
   queryTransactionStatus,
 } from "@/lib/interswitch";
+import {
+  initializePaystackTransaction,
+  verifyPaystackTransaction,
+} from "@/lib/paystack";
 
 // ─── Initialize escrow ────────────────────────────────────────────────────────
 
 /**
- * Create a pending escrow record and return the Interswitch payment URL
+ * Create a pending escrow record and return a payment URL (Interswitch or Paystack)
  * to redirect the patient to. Amount is in Naira (converted to kobo internally).
  */
 export async function initializeEscrow(params: {
@@ -26,11 +30,13 @@ export async function initializeEscrow(params: {
   amountNaira: number;
   description: string;
   baseUrl: string; // e.g. https://aurahealth.com
+  provider?: "interswitch" | "paystack";
 }) {
+  const provider = params.provider ?? "paystack";
   try {
     const txnRef = generateTxnRef();
     const amountKobo = String(params.amountNaira * 100);
-    const redirectUrl = `${params.baseUrl}/api/escrow/callback?txnRef=${txnRef}`;
+    const redirectUrl = `${params.baseUrl}/api/escrow/callback?txnRef=${txnRef}&provider=${provider}`;
 
     const now = new Date();
     await db.insert(escrowTransaction).values({
@@ -40,23 +46,42 @@ export async function initializeEscrow(params: {
       amount: amountKobo,
       status: "pending",
       transactionRef: txnRef,
+      paymentProvider: provider,
       description: params.description,
       createdAt: now,
       updatedAt: now,
     });
 
-    // Web Redirect (Path B) — amount encoded directly in the URL so the sandbox
-    // pay item's configured fixed price cannot override it, and mode=TEST is
-    // appended automatically in sandbox so test cards are accepted.
-    // We still keep createPayBillLink imported for production use when needed.
-    const paymentUrl = buildPaymentRedirectUrl({
-      txnRef,
-      amountNaira: params.amountNaira,
-      customerEmail: params.patientEmail,
-      customerName: params.patientName,
-      description: params.description,
-      redirectUrl,
-    });
+    let paymentUrl: string;
+
+    if (provider === "paystack") {
+      const ps = await initializePaystackTransaction({
+        txnRef,
+        amountKobo: params.amountNaira * 100,
+        customerEmail: params.patientEmail,
+        callbackUrl: redirectUrl,
+      });
+      if (!ps) {
+        return {
+          success: false,
+          txnRef: null,
+          paymentUrl: null,
+          message: "Failed to initialize Paystack payment.",
+        };
+      }
+      paymentUrl = ps.authorizationUrl;
+    } else {
+      // Interswitch — Web Redirect (Path B) with SHA-512 hash so Interswitch
+      // uses our exact amount instead of the pay item's configured fixed price.
+      paymentUrl = await buildPaymentRedirectUrl({
+        txnRef,
+        amountNaira: params.amountNaira,
+        customerEmail: params.patientEmail,
+        customerName: params.patientName,
+        description: params.description,
+        redirectUrl,
+      });
+    }
 
     return { success: true, txnRef, paymentUrl };
   } catch (error) {
@@ -147,6 +172,7 @@ export async function initializeMockEscrow(params: {
       amount: amountKobo,
       status: "held",
       transactionRef: txnRef,
+      paymentProvider: "mock",
       description: params.description,
       createdAt: now,
       updatedAt: now,
@@ -179,7 +205,10 @@ export async function getHospitalEscrows(hospitalId: string) {
 
 // ─── Verify payment and mark as held (called from callback route) ─────────────
 
-export async function verifyAndHoldEscrow(txnRef: string) {
+export async function verifyAndHoldEscrow(
+  txnRef: string,
+  provider?: "interswitch" | "paystack",
+) {
   try {
     const txn = await db
       .select()
@@ -192,21 +221,46 @@ export async function verifyAndHoldEscrow(txnRef: string) {
       return { success: true, message: "Already processed." };
     }
 
-    // Query Interswitch to verify payment
-    const status = await queryTransactionStatus(txnRef, txn.amount);
+    const resolvedProvider = provider ?? txn.paymentProvider ?? "interswitch";
 
-    if (!status || !isPaymentSuccessful(status)) {
-      return { success: false, message: "Payment not confirmed by Interswitch." };
+    if (resolvedProvider === "paystack") {
+      // Verify via Paystack
+      const psResult = await verifyPaystackTransaction(txnRef);
+
+      if (!psResult || psResult.status !== "success") {
+        return { success: false, message: "Payment not confirmed by Paystack." };
+      }
+
+      // Verify amount matches
+      if (String(psResult.amount) !== txn.amount) {
+        return { success: false, message: "Payment amount mismatch." };
+      }
+
+      await db
+        .update(escrowTransaction)
+        .set({
+          status: "held",
+          providerRef: psResult.reference,
+          updatedAt: new Date(),
+        })
+        .where(eq(escrowTransaction.transactionRef, txnRef));
+    } else {
+      // Verify via Interswitch
+      const status = await queryTransactionStatus(txnRef, txn.amount);
+
+      if (!status || !isPaymentSuccessful(status)) {
+        return { success: false, message: "Payment not confirmed by Interswitch." };
+      }
+
+      await db
+        .update(escrowTransaction)
+        .set({
+          status: "held",
+          interswitchRef: status.PaymentReference,
+          updatedAt: new Date(),
+        })
+        .where(eq(escrowTransaction.transactionRef, txnRef));
     }
-
-    await db
-      .update(escrowTransaction)
-      .set({
-        status: "held",
-        interswitchRef: status.PaymentReference,
-        updatedAt: new Date(),
-      })
-      .where(eq(escrowTransaction.transactionRef, txnRef));
 
     return { success: true };
   } catch (error) {
