@@ -68,9 +68,9 @@ export function HowItWorks() {
                 2. Dynamic Escrow
               </h3>
               <p className="text-white/80 text-lg leading-relaxed">
-                Funds are instantly secured via Interswitch. The hospital sees a
-                &quot;Guaranteed&quot; status, eliminating the need for
-                down-payments.
+                Funds are instantly secured via Interswitch or Paystack. The
+                hospital sees a &quot;Guaranteed&quot; status, eliminating the
+                need for down-payments.
               </p>
             </div>
             <div className="absolute bottom-[-10%] right-[-10%] opacity-10 group-hover:scale-110 transition-transform duration-700">
