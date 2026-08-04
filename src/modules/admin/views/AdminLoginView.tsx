@@ -26,7 +26,6 @@ export function AdminLoginView() {
       const { data, error: authError } = await authClient.signIn.email({
         email,
         password,
-        callbackURL: "/admin",
       });
 
       if (authError) {
@@ -34,8 +33,10 @@ export function AdminLoginView() {
         setError(authError.message || "Invalid administrator credentials");
         setLoading(false);
       } else {
-        console.log("Login successful, redirecting...");
-        router.push("/admin");
+        // Hard navigation to ensure the fresh session cookie is sent
+        // with the server component request (router.push is a soft
+        // navigation that can miss newly-set cookies).
+        window.location.href = "/admin";
       }
     } catch (err) {
       console.error("Unexpected error during login:", err);

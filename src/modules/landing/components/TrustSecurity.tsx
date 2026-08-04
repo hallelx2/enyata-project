@@ -26,11 +26,12 @@ export function TrustSecurity() {
                 </div>
                 <div>
                   <h4 className="font-bold text-on-surface mb-1">
-                    Interswitch Partnership
+                    Payment Partners
                   </h4>
                   <p className="text-sm text-on-surface-variant">
                     Industry-leading escrow and payment settlements powered by
-                    Africa&apos;s most trusted payment gateway.
+                    Interswitch and Paystack — Africa&apos;s most trusted
+                    payment gateways.
                   </p>
                 </div>
               </div>

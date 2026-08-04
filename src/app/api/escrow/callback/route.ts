@@ -2,16 +2,20 @@ import { type NextRequest, NextResponse } from "next/server";
 import { verifyAndHoldEscrow } from "@/modules/escrow/actions";
 
 /**
- * Interswitch redirects the customer here after payment attempt.
- * URL: /api/escrow/callback?txnRef=AUR-...&resp=...
+ * Shared payment callback — handles redirects from both Interswitch and Paystack.
  *
- * We verify with Interswitch, mark the escrow as "held" if successful,
+ * URL: /api/escrow/callback?txnRef=AUR-...&provider=paystack|interswitch[&resp=...]
+ *
+ * We verify with the appropriate provider, mark escrow as "held" if successful,
  * then redirect the patient to their dashboard with a status message.
+ *
+ * Note: Paystack appends &trxref=...&reference=... to the callback URL.
+ * This doesn't conflict since we read txnRef by our own param name.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const txnRef = searchParams.get("txnRef");
-  const resp = searchParams.get("resp"); // Interswitch response code
+  const provider = searchParams.get("provider") as "interswitch" | "paystack" | null;
 
   if (!txnRef) {
     return NextResponse.redirect(
@@ -19,9 +23,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // resp === "00" is a preliminary success signal from the redirect params;
-  // we still verify server-side via the status API.
-  const result = await verifyAndHoldEscrow(txnRef);
+  // Verify server-side via the provider's status API.
+  const result = await verifyAndHoldEscrow(txnRef, provider ?? undefined);
 
   if (result.success) {
     return NextResponse.redirect(

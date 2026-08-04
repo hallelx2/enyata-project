@@ -9,13 +9,23 @@ export function TrustMarkers() {
             </span>
             <div className="h-[1px] w-12 bg-outline-variant"></div>
           </div>
-          <div className="flex items-center gap-2 opacity-60">
-            <div className="w-8 h-8 rounded bg-red-600 flex items-center justify-center text-white font-black text-xs">
-              IS
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 opacity-60">
+              <div className="w-8 h-8 rounded bg-red-600 flex items-center justify-center text-white font-black text-xs">
+                IS
+              </div>
+              <span className="text-xl font-bold tracking-tight text-on-surface">
+                Interswitch
+              </span>
             </div>
-            <span className="text-xl font-bold tracking-tight text-on-surface">
-              Interswitch
-            </span>
+            <div className="flex items-center gap-2 opacity-60">
+              <div className="w-8 h-8 rounded bg-[#00C3F7] flex items-center justify-center text-white font-black text-xs">
+                PS
+              </div>
+              <span className="text-xl font-bold tracking-tight text-on-surface">
+                Paystack
+              </span>
+            </div>
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-12">

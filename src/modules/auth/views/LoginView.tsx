@@ -19,13 +19,13 @@ export function LoginView() {
     const { data, error } = await signIn.email({
       email,
       password,
-      callbackURL: "/",
     });
     setLoading(false);
     if (error) {
       alert(error.message);
     } else {
-      router.push("/");
+      // Hard navigation so the server component picks up the fresh session cookie
+      window.location.href = "/";
     }
   };
 
